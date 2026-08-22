@@ -13,10 +13,10 @@
 | **3. Monaco Editor コア** | `src/vs/editor/` | 64 | 64 | 100% |
 | **4. Workbench UI / Shell** | `src/vs/workbench/` | 86 | 86 | 100% |
 | **5. Extension Host 基盤** | `src/vs/workbench/api/` | 38 | 38 | 100% |
-| **6. Native Shell / Lifecycle**| `src/vs/code/` | 24 | 0 | 0% |
-| **7. Remote / Server** | `src/vs/server/` | 18 | 0 | 0% |
-| **8. Built-in Extensions** | `extensions/` | 30 | 0 | 0% |
-| **合計** | -- | **360** | **288** | **80.0%** |
+| **6. Native Shell / Lifecycle**| `src/vs/code/` | 24 | 24 | 100% |
+| **7. Remote / Server** | `src/vs/server/` | 18 | 18 | 100% |
+| **8. Built-in Extensions** | `extensions/` | 30 | 30 | 100% |
+| **合計** | -- | **360** | **360** | **100%** |
 
 ---
 
@@ -184,27 +184,27 @@
 
 ## 6. `src/vs/code/` (ネイティブシェル & エントリポイント)
 
-- [ ] `electron-main/app.ts` - アプリケーションライフサイクル、単一インスタンスロック
-- [ ] `electron-main/window.ts` - ネイティブデスクトップウィンドウ作成、DPI、フレームレスウィンドウ
-- [ ] `electron-utility/sharedProcess/` - 拡張機能管理・バックグラウンド処理プロセス
-- [ ] `electron-sandbox/workbench/` - UI レンダリング初期化
+- [x] `electron-main/app.ts` - アプリケーションライフサイクル、単一インスタンスロック
+- [x] `electron-main/window.ts` - ネイティブデスクトップウィンドウ作成、DPI、フレームレスウィンドウ
+- [x] `electron-utility/sharedProcess/` - 拡張機能管理・バックグラウンド処理プロセス
+- [x] `electron-sandbox/workbench/` - UI レンダリング初期化
 
 ---
 
 ## 7. `src/vs/server/` (リモート開発基盤)
 
-- [ ] `node/remoteConnection.ts` - SSH / WSL / Container / Tunnel リモート接続
-- [ ] `node/webClientServer.ts` - Web 版 VS Code (vscode.dev) 配信サーバー
-- [ ] `node/cli.ts` - コマンドライン引数パーサー (`code .`, `code --diff a b`)
+- [x] `node/remoteConnection.ts` - SSH / WSL / Container / Tunnel リモート接続
+- [x] `node/webClientServer.ts` - Web 版 VS Code (vscode.dev) 配信サーバー
+- [x] `node/cli.ts` - コマンドライン引数パーサー (`code .`, `code --diff a b`)
 
 ---
 
 ## 8. `extensions/` (標準組み込み拡張機能)
 
-- [ ] `git/` - Git バージョン管理プロバイダー
-- [ ] `markdown-language-features/` - Markdown 構文解析・プレビュー・診断
-- [ ] `theme-defaults/` - Default Dark+, Light+, High Contrast テーマ定義
-- [ ] `configuration-editing/` - `settings.json` / `launch.json` のスキーマ補完
+- [x] `git/` - Git バージョン管理プロバイダー
+- [x] `markdown-language-features/` - Markdown 構文解析・プレビュー・診断
+- [x] `theme-defaults/` - Default Dark+, Light+, High Contrast テーマ定義
+- [x] `configuration-editing/` - `settings.json` / `launch.json` のスキーマ補完
 
 ---
 
