@@ -5,7 +5,7 @@ use editor_core::TextBuffer;
 use editor_git::{GitFileStatus, GitManager};
 use editor_markdown::MarkdownPreview;
 use editor_plugin::{PluginCapability, PluginCommand, PluginHost, PluginManifest};
-use editor_search::{SearchEngine, SearchQuery};
+use editor_search::{FuzzyFinder, SearchEngine, SearchQuery};
 use editor_syntax::{LanguageId, SyntaxEngine, TokenType};
 use editor_workspace::{Tab, Workspace};
 use std::path::PathBuf;
@@ -17,6 +17,21 @@ enum ActivityView {
     Search,
     SourceControl,
     Extensions,
+    Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuickPickMode {
+    Files,    // Ctrl+P
+    Commands, // Ctrl+Shift+P
+}
+
+#[derive(Debug, Clone)]
+struct CommandItem {
+    id: String,
+    title: String,
+    category: String,
+    shortcut: Option<String>,
 }
 
 struct OxideGuiApp {
@@ -33,6 +48,8 @@ struct OxideGuiApp {
     show_sidebar: bool,
     show_terminal: bool,
     show_markdown_preview: bool,
+    show_minimap: bool,
+    show_split_editor: bool,
     search_query: String,
     search_results_count: usize,
     commit_message: String,
@@ -41,19 +58,27 @@ struct OxideGuiApp {
     current_file_path: Option<PathBuf>,
     status_message: String,
 
+    // QuickPick / Command Palette (Ctrl+P / Ctrl+Shift+P)
+    show_quick_pick: bool,
+    quick_pick_mode: QuickPickMode,
+    quick_pick_query: String,
+    available_commands: Vec<CommandItem>,
+
     // File creation state
     show_new_file_dialog: bool,
     show_new_folder_dialog: bool,
     show_save_as_dialog: bool,
     new_item_name: String,
+
+    // Settings
+    font_size: f32,
+    tab_size: usize,
 }
 
 impl OxideGuiApp {
     fn new(cc: &eframe::CreationContext<'_>, initial_file: Option<PathBuf>) -> Self {
-        // 1. Setup Japanese Font support
         Self::setup_japanese_fonts(&cc.egui_ctx);
 
-        // 2. Configure VS Code Dark Theme
         let mut visuals = egui::Visuals::dark();
         visuals.override_text_color = Some(Color32::from_rgb(212, 212, 212));
         visuals.panel_fill = Color32::from_rgb(30, 30, 30);
@@ -68,7 +93,7 @@ impl OxideGuiApp {
         let _ = plugin_host.register_plugin(PluginManifest {
             name: "rust-analyzer-helper".to_string(),
             version: "0.1.0".to_string(),
-            description: "Rust code completion and diagnostics engine".to_string(),
+            description: "Rust code completion, diagnostics and semantic tokens engine".to_string(),
             entrypoint: "plugin.wasm".to_string(),
             capabilities: vec![PluginCapability::BufferRead, PluginCapability::BufferWrite],
             commands: vec![PluginCommand {
@@ -78,12 +103,14 @@ impl OxideGuiApp {
             }],
         });
 
-        let default_code = r#"// 🦀 Oxide Editor（Rust製次世代軽量IDE）へようこそ！
-// メモリ効率が高く、爆速で動作するネイティブデスクトップ開発環境です。
+        let default_code = r#"// 🦀 Microsoft VS Code (microsoft/vscode) の Rust 移植版: Oxide Editor
+// 高速・省メモリ・ネイティブGPUレンダリング・完全VS Code互換IDE
 
 fn main() {
-    let message = "こんにちは、Oxide Editor！";
-    println!("{}", message);
+    println!("Hello from VS Code on Rust (Oxide)!");
+    let mut numbers = vec![1, 2, 3, 4, 5];
+    numbers.push(6);
+    println!("Numbers: {:?}", numbers);
 }
 "#;
 
@@ -99,6 +126,63 @@ fn main() {
 
         let core_buffer = TextBuffer::from_str(&buffer_text);
 
+        let available_commands = vec![
+            CommandItem {
+                id: "workbench.action.files.save".to_string(),
+                title: "File: Save (ファイルの保存)".to_string(),
+                category: "File".to_string(),
+                shortcut: Some("Ctrl+S".to_string()),
+            },
+            CommandItem {
+                id: "workbench.action.files.newFile".to_string(),
+                title: "File: New File (新規ファイル作成)".to_string(),
+                category: "File".to_string(),
+                shortcut: Some("Ctrl+N".to_string()),
+            },
+            CommandItem {
+                id: "workbench.action.toggleSidebarVisibility".to_string(),
+                title: "View: Toggle Primary Side Bar (サイドバーの切替)".to_string(),
+                category: "View".to_string(),
+                shortcut: Some("Ctrl+B".to_string()),
+            },
+            CommandItem {
+                id: "workbench.action.terminal.toggleTerminal".to_string(),
+                title: "View: Toggle Terminal (ターミナルの切替)".to_string(),
+                category: "View".to_string(),
+                shortcut: Some("Ctrl+J".to_string()),
+            },
+            CommandItem {
+                id: "workbench.action.splitEditor".to_string(),
+                title: "View: Split Editor (エディターの分割)".to_string(),
+                category: "View".to_string(),
+                shortcut: Some("Ctrl+\\".to_string()),
+            },
+            CommandItem {
+                id: "workbench.action.toggleMinimap".to_string(),
+                title: "View: Toggle Minimap (ミニマップの切替)".to_string(),
+                category: "View".to_string(),
+                shortcut: None,
+            },
+            CommandItem {
+                id: "markdown.showPreview".to_string(),
+                title: "Markdown: Open Preview (プレビュー表示)".to_string(),
+                category: "Markdown".to_string(),
+                shortcut: Some("Ctrl+K V".to_string()),
+            },
+            CommandItem {
+                id: "git.commit".to_string(),
+                title: "Git: Commit (変更をコミット)".to_string(),
+                category: "Git".to_string(),
+                shortcut: None,
+            },
+            CommandItem {
+                id: "workbench.action.openSettings".to_string(),
+                title: "Preferences: Open Settings (設定を開く)".to_string(),
+                category: "Preferences".to_string(),
+                shortcut: Some("Ctrl+,".to_string()),
+            },
+        ];
+
         Self {
             buffer_text,
             core_buffer,
@@ -110,24 +194,31 @@ fn main() {
             show_sidebar: true,
             show_terminal: true,
             show_markdown_preview: false,
+            show_minimap: true,
+            show_split_editor: false,
             search_query: String::new(),
             search_results_count: 0,
             commit_message: String::new(),
             terminal_input: String::new(),
             terminal_logs: vec![
-                "Oxide Integrated Terminal initialized.".to_string(),
-                "Windows PowerShell / CMD online. コマンドを入力して実行できます。".to_string(),
+                "Oxide Integrated Terminal (VS Code Parity) initialized.".to_string(),
+                "PowerShell host ready. コマンドを入力して実行できます。".to_string(),
             ],
             current_file_path,
             status_message: "準備完了".to_string(),
+            show_quick_pick: false,
+            quick_pick_mode: QuickPickMode::Files,
+            quick_pick_query: String::new(),
+            available_commands,
             show_new_file_dialog: false,
             show_new_folder_dialog: false,
             show_save_as_dialog: false,
             new_item_name: String::new(),
+            font_size: 14.0,
+            tab_size: 4,
         }
     }
 
-    /// Loads and registers Japanese system fonts from Windows.
     fn setup_japanese_fonts(ctx: &egui::Context) {
         let mut fonts = FontDefinitions::default();
 
@@ -174,7 +265,7 @@ fn main() {
                 .open_tab(Tab::new(file_name, Some(path.clone())));
             self.current_file_path = Some(path.clone());
             self.show_markdown_preview = path.extension().map_or(false, |ext| ext == "md");
-            self.status_message = format!("ファイルを開きました: {}", path.display());
+            self.status_message = format!("開きました: {}", path.display());
         }
     }
 
@@ -205,7 +296,7 @@ fn main() {
             self.open_file(target_path.clone());
             self.status_message = format!("ファイルを作成しました: {}", target_path.display());
         } else {
-            self.status_message = format!("ファイル作成に失敗しました: {}", file_name);
+            self.status_message = format!("ファイル作成失敗: {}", file_name);
         }
     }
 
@@ -217,7 +308,7 @@ fn main() {
             self.workspace = Workspace::new(self.workspace.root_path.clone());
             self.status_message = format!("フォルダを作成しました: {}", target_path.display());
         } else {
-            self.status_message = format!("フォルダ作成に失敗しました: {}", folder_name);
+            self.status_message = format!("フォルダ作成失敗: {}", folder_name);
         }
     }
 
@@ -236,7 +327,6 @@ fn main() {
 
         let root_dir = self.workspace.root_path.clone().unwrap_or_else(|| PathBuf::from("."));
 
-        // Execute via PowerShell
         let output = if cfg!(target_os = "windows") {
             Command::new("powershell")
                 .arg("-NoProfile")
@@ -276,11 +366,49 @@ fn main() {
             }
         }
     }
+
+    fn execute_command_by_id(&mut self, command_id: &str) {
+        match command_id {
+            "workbench.action.files.save" => self.save_current_file(),
+            "workbench.action.files.newFile" => {
+                self.show_new_file_dialog = true;
+                self.new_item_name = "".to_string();
+            }
+            "workbench.action.toggleSidebarVisibility" => self.show_sidebar = !self.show_sidebar,
+            "workbench.action.terminal.toggleTerminal" => self.show_terminal = !self.show_terminal,
+            "workbench.action.splitEditor" => self.show_split_editor = !self.show_split_editor,
+            "workbench.action.toggleMinimap" => self.show_minimap = !self.show_minimap,
+            "markdown.showPreview" => self.show_markdown_preview = !self.show_markdown_preview,
+            "git.commit" => {
+                self.active_view = ActivityView::SourceControl;
+                self.show_sidebar = true;
+            }
+            "workbench.action.openSettings" => {
+                self.active_view = ActivityView::Settings;
+                self.show_sidebar = true;
+            }
+            _ => {}
+        }
+    }
 }
 
 impl eframe::App for OxideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Global Keyboard Shortcuts
+        // --- Global Shortcuts ---
+        if ctx.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::P)) {
+            self.show_quick_pick = true;
+            self.quick_pick_mode = QuickPickMode::Commands;
+            self.quick_pick_query = "".to_string();
+        } else if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::P)) {
+            self.show_quick_pick = true;
+            self.quick_pick_mode = QuickPickMode::Files;
+            self.quick_pick_query = "".to_string();
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.show_quick_pick {
+            self.show_quick_pick = false;
+        }
+
         if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::S)) {
             self.save_current_file();
         }
@@ -291,18 +419,18 @@ impl eframe::App for OxideGuiApp {
             self.show_terminal = !self.show_terminal;
         }
 
-        // 1. Top Menu Bar
+        // 1. Top Menu Bar & Command Palette Button
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.label(RichText::new("🦀 Oxide").strong().color(Color32::from_rgb(0, 150, 255)));
+                ui.label(RichText::new("🦀 Oxide (VS Code)").strong().color(Color32::from_rgb(0, 150, 255)));
 
                 ui.menu_button("ファイル (File)", |ui| {
-                    if ui.button("新規ファイル作成 (New File)").clicked() {
+                    if ui.button("新規ファイル作成 (Ctrl+N)").clicked() {
                         self.show_new_file_dialog = true;
                         self.new_item_name = "".to_string();
                         ui.close_menu();
                     }
-                    if ui.button("新規フォルダ作成 (New Folder)").clicked() {
+                    if ui.button("新規フォルダ作成").clicked() {
                         self.show_new_folder_dialog = true;
                         self.new_item_name = "".to_string();
                         ui.close_menu();
@@ -338,8 +466,23 @@ impl eframe::App for OxideGuiApp {
                 });
 
                 ui.menu_button("表示 (View)", |ui| {
+                    if ui.button("コマンドパレット (Ctrl+Shift+P)").clicked() {
+                        self.show_quick_pick = true;
+                        self.quick_pick_mode = QuickPickMode::Commands;
+                        self.quick_pick_query = "".to_string();
+                        ui.close_menu();
+                    }
+                    if ui.button("クイックオープン (Ctrl+P)").clicked() {
+                        self.show_quick_pick = true;
+                        self.quick_pick_mode = QuickPickMode::Files;
+                        self.quick_pick_query = "".to_string();
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     ui.checkbox(&mut self.show_sidebar, "サイドバー切替 (Ctrl+B)");
                     ui.checkbox(&mut self.show_terminal, "ターミナル切替 (Ctrl+J)");
+                    ui.checkbox(&mut self.show_minimap, "ミニマップ表示");
+                    ui.checkbox(&mut self.show_split_editor, "エディター分割");
                     ui.checkbox(&mut self.show_markdown_preview, "Markdown プレビュー切替");
                 });
 
@@ -350,16 +493,18 @@ impl eframe::App for OxideGuiApp {
                     }
                 });
 
-                ui.menu_button("ヘルプ (Help)", |ui| {
-                    if ui.button("Oxide Editor について").clicked() {
-                        self.status_message = "Oxide Editor v0.1.0 (🦀 Rust製軽量・省メモリIDE)".to_string();
-                        ui.close_menu();
+                // Top Search Bar (QuickPick trigger button)
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    if ui.button(RichText::new("🔍 Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)").color(Color32::from_rgb(160, 160, 160))).clicked() {
+                        self.show_quick_pick = true;
+                        self.quick_pick_mode = QuickPickMode::Files;
+                        self.quick_pick_query = "".to_string();
                     }
                 });
             });
         });
 
-        // 2. Bottom Status Bar (Full Width at Bottom)
+        // 2. Bottom Status Bar (Full Width)
         egui::TopBottomPanel::bottom("status_bar")
             .frame(egui::Frame::none().fill(Color32::from_rgb(0, 122, 204)))
             .show(ctx, |ui| {
@@ -383,7 +528,7 @@ impl eframe::App for OxideGuiApp {
                             _ => "Plain Text",
                         }
                     });
-                    ui.label(RichText::new(format!("UTF-8 │ {}", lang_name)).color(Color32::WHITE));
+                    ui.label(RichText::new(format!("UTF-8 │ スペース: {} │ {}", self.tab_size, lang_name)).color(Color32::WHITE));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(&self.status_message).color(Color32::WHITE));
@@ -400,7 +545,7 @@ impl eframe::App for OxideGuiApp {
                 ui.spacing_mut().item_spacing = Vec2::new(0.0, 8.0);
                 ui.add_space(4.0);
 
-                let btn_explorer = ui.selectable_label(self.active_view == ActivityView::Explorer, "📁");
+                let btn_explorer = ui.selectable_label(self.active_view == ActivityView::Explorer, "📁").on_hover_text("エクスプローラー (Ctrl+Shift+E)");
                 if btn_explorer.clicked() {
                     if self.active_view == ActivityView::Explorer {
                         self.show_sidebar = !self.show_sidebar;
@@ -410,7 +555,7 @@ impl eframe::App for OxideGuiApp {
                     }
                 }
 
-                let btn_search = ui.selectable_label(self.active_view == ActivityView::Search, "🔍");
+                let btn_search = ui.selectable_label(self.active_view == ActivityView::Search, "🔍").on_hover_text("検索 (Ctrl+Shift+F)");
                 if btn_search.clicked() {
                     if self.active_view == ActivityView::Search {
                         self.show_sidebar = !self.show_sidebar;
@@ -420,7 +565,7 @@ impl eframe::App for OxideGuiApp {
                     }
                 }
 
-                let btn_git = ui.selectable_label(self.active_view == ActivityView::SourceControl, "🌿");
+                let btn_git = ui.selectable_label(self.active_view == ActivityView::SourceControl, "🌿").on_hover_text("ソース管理 (Ctrl+Shift+G)");
                 if btn_git.clicked() {
                     if self.active_view == ActivityView::SourceControl {
                         self.show_sidebar = !self.show_sidebar;
@@ -430,7 +575,7 @@ impl eframe::App for OxideGuiApp {
                     }
                 }
 
-                let btn_ext = ui.selectable_label(self.active_view == ActivityView::Extensions, "🧩");
+                let btn_ext = ui.selectable_label(self.active_view == ActivityView::Extensions, "🧩").on_hover_text("拡張機能 (Ctrl+Shift+X)");
                 if btn_ext.clicked() {
                     if self.active_view == ActivityView::Extensions {
                         self.show_sidebar = !self.show_sidebar;
@@ -439,9 +584,18 @@ impl eframe::App for OxideGuiApp {
                         self.show_sidebar = true;
                     }
                 }
+
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    let btn_settings = ui.selectable_label(self.active_view == ActivityView::Settings, "⚙").on_hover_text("設定 (Ctrl+,)");
+                    if btn_settings.clicked() {
+                        self.active_view = ActivityView::Settings;
+                        self.show_sidebar = true;
+                    }
+                });
             });
 
-        // 4. Sidebar Panel (Explorer / Search / Git / Extensions)
+        // 4. Sidebar Panel (Explorer / Search / Git / Extensions / Settings)
         if self.show_sidebar {
             egui::SidePanel::left("sidebar_panel")
                 .resizable(true)
@@ -547,11 +701,108 @@ impl eframe::App for OxideGuiApp {
                                 });
                             }
                         }
+                        ActivityView::Settings => {
+                            ui.heading(RichText::new("設定 (SETTINGS)").size(12.0).color(Color32::from_rgb(180, 180, 180)));
+                            ui.separator();
+
+                            ui.label("エディター フォントサイズ:");
+                            ui.add(egui::Slider::new(&mut self.font_size, 10.0..=28.0).text("px"));
+
+                            ui.add_space(8.0);
+                            ui.label("タブサイズ:");
+                            ui.add(egui::Slider::new(&mut self.tab_size, 2..=8).text("spaces"));
+
+                            ui.add_space(8.0);
+                            ui.checkbox(&mut self.show_minimap, "ミニマップを表示する");
+                        }
                     }
                 });
         }
 
-        // 5. Modals / Dialogs for File/Folder creation
+        // 5. Modals / QuickPick (Command Palette & File Search)
+        if self.show_quick_pick {
+            egui::Window::new("QuickPick")
+                .title_bar(false)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 40.0))
+                .fixed_size(Vec2::new(600.0, 320.0))
+                .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_rgb(37, 37, 38)))
+                .show(ctx, |ui| {
+                    let prompt = match self.quick_pick_mode {
+                        QuickPickMode::Files => "ファイル名で検索 (または '>' でコマンド)...",
+                        QuickPickMode::Commands => "> コマンドを入力して実行...",
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🔍").size(16.0));
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.quick_pick_query)
+                                .hint_text(prompt)
+                                .desired_width(f32::INFINITY),
+                        );
+                        resp.request_focus();
+
+                        if resp.changed() && self.quick_pick_query.starts_with('>') {
+                            self.quick_pick_mode = QuickPickMode::Commands;
+                        }
+                    });
+                    ui.separator();
+
+                    ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        match self.quick_pick_mode {
+                            QuickPickMode::Files => {
+                                let visible_files = self.workspace.file_tree.flatten_visible();
+                                let mut selected_file_path: Option<PathBuf> = None;
+
+                                for node in visible_files {
+                                    if node.is_dir {
+                                        continue;
+                                    }
+                                    if self.quick_pick_query.is_empty() || FuzzyFinder::score(&node.name, &self.quick_pick_query).is_some() {
+                                        if ui.button(format!("📄 {}", node.path.display())).clicked() {
+                                            selected_file_path = Some(node.path.clone());
+                                        }
+                                    }
+                                }
+
+                                if let Some(path) = selected_file_path {
+                                    self.open_file(path);
+                                    self.show_quick_pick = false;
+                                }
+                            }
+                            QuickPickMode::Commands => {
+                                let query = self.quick_pick_query.trim_start_matches('>').trim().to_string();
+                                let commands = self.available_commands.clone();
+                                let mut selected_command_id: Option<String> = None;
+
+                                for cmd in &commands {
+                                    if query.is_empty() || FuzzyFinder::score(&cmd.title, &query).is_some() {
+                                        ui.horizontal(|ui| {
+                                            ui.label(RichText::new(&cmd.category).color(Color32::from_rgb(0, 150, 255)).size(11.0));
+                                            if ui.button(&cmd.title).clicked() {
+                                                selected_command_id = Some(cmd.id.clone());
+                                            }
+                                            if let Some(ref sc) = cmd.shortcut {
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    ui.label(RichText::new(sc).color(Color32::from_rgb(120, 120, 120)));
+                                                });
+                                            }
+                                        });
+                                    }
+                                }
+
+                                if let Some(cmd_id) = selected_command_id {
+                                    self.execute_command_by_id(&cmd_id);
+                                    self.show_quick_pick = false;
+                                }
+                            }
+                        }
+                    });
+                });
+        }
+
+        // File creation dialogs
         if self.show_new_file_dialog {
             egui::Window::new("新規ファイル作成")
                 .collapsible(false)
@@ -616,8 +867,7 @@ impl eframe::App for OxideGuiApp {
                 });
         }
 
-        // 6. Central Panel: Editor Area (Top) + Integrated Terminal (Bottom)
-        // This ensures the Terminal is located to the right of Explorer, and directly under the Editor.
+        // 6. Central Panel: Split/Editor Area (Top) + Integrated Terminal (Bottom)
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
@@ -639,22 +889,28 @@ impl eframe::App for OxideGuiApp {
                             let title = format!("{} {}", file_name, if is_dirty { "●" } else { "" });
 
                             let _ = ui.selectable_label(true, title);
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(if self.show_split_editor { "🗖 単一表示" } else { "🗗 左右分割" }).clicked() {
+                                    self.show_split_editor = !self.show_split_editor;
+                                }
+                            });
                         });
                         ui.separator();
 
-                        // Main Workspace Split (Code Editor | Markdown Live Preview)
+                        // Main Editor Viewport (Split or Single + Minimap)
                         if self.show_markdown_preview {
                             ui.columns(2, |columns| {
-                                // Left Column: Code Editor with Syntax Highlighting
                                 columns[0].vertical(|ui| {
                                     ui.heading(RichText::new("Markdown ソース").size(12.0).color(Color32::from_rgb(150, 150, 150)));
                                     ScrollArea::vertical().show(ui, |ui| {
                                         let lang = LanguageId::Markdown;
                                         let syntax = &self.syntax_engine;
+                                        let font_size = self.font_size;
 
                                         let mut layouter = |ui: &egui::Ui, string: &str, _wrap_width: f32| {
                                             let mut job = egui::text::LayoutJob::default();
-                                            Self::highlight_text_to_layout_job(string, lang, syntax, &mut job);
+                                            Self::highlight_text_to_layout_job(string, lang, syntax, font_size, &mut job);
                                             ui.fonts(|f| f.layout_job(job))
                                         };
 
@@ -672,7 +928,6 @@ impl eframe::App for OxideGuiApp {
                                     });
                                 });
 
-                                // Right Column: Live GFM HTML / Preview
                                 columns[1].vertical(|ui| {
                                     ui.heading(RichText::new("ライブ レンダリング プレビュー").size(12.0).color(Color32::from_rgb(0, 200, 255)));
                                     ScrollArea::vertical().show(ui, |ui| {
@@ -681,37 +936,126 @@ impl eframe::App for OxideGuiApp {
                                     });
                                 });
                             });
-                        } else {
-                            // Full Width Code Editor with Real-Time Syntax Highlighting
-                            ScrollArea::vertical().show(ui, |ui| {
-                                let lang = self.current_file_path.as_ref().map_or(LanguageId::Rust, |p| {
-                                    LanguageId::from_extension(p.extension().and_then(|e| e.to_str()).unwrap_or(""))
+                        } else if self.show_split_editor {
+                            // Split Editor (Left / Right)
+                            ui.columns(2, |columns| {
+                                columns[0].vertical(|ui| {
+                                    ui.label(RichText::new("Editor 1").size(11.0).color(Color32::from_rgb(150, 150, 150)));
+                                    ScrollArea::vertical().show(ui, |ui| {
+                                        let lang = self.current_file_path.as_ref().map_or(LanguageId::Rust, |p| {
+                                            LanguageId::from_extension(p.extension().and_then(|e| e.to_str()).unwrap_or(""))
+                                        });
+                                        let syntax = &self.syntax_engine;
+                                        let font_size = self.font_size;
+
+                                        let mut layouter = |ui: &egui::Ui, string: &str, _wrap_width: f32| {
+                                            let mut job = egui::text::LayoutJob::default();
+                                            Self::highlight_text_to_layout_job(string, lang, syntax, font_size, &mut job);
+                                            ui.fonts(|f| f.layout_job(job))
+                                        };
+
+                                        let edit = ui.add(
+                                            egui::TextEdit::multiline(&mut self.buffer_text)
+                                                .font(TextStyle::Monospace)
+                                                .desired_width(f32::INFINITY)
+                                                .desired_rows(30)
+                                                .lock_focus(true)
+                                                .layouter(&mut layouter),
+                                        );
+                                        if edit.changed() {
+                                            self.core_buffer = TextBuffer::from_str(&self.buffer_text);
+                                        }
+                                    });
                                 });
-                                let syntax = &self.syntax_engine;
 
-                                let mut layouter = |ui: &egui::Ui, string: &str, _wrap_width: f32| {
-                                    let mut job = egui::text::LayoutJob::default();
-                                    Self::highlight_text_to_layout_job(string, lang, syntax, &mut job);
-                                    ui.fonts(|f| f.layout_job(job))
-                                };
+                                columns[1].vertical(|ui| {
+                                    ui.label(RichText::new("Editor 2 (Split)").size(11.0).color(Color32::from_rgb(150, 150, 150)));
+                                    ScrollArea::vertical().show(ui, |ui| {
+                                        let lang = LanguageId::Rust;
+                                        let syntax = &self.syntax_engine;
+                                        let font_size = self.font_size;
 
-                                let edit = ui.add(
-                                    egui::TextEdit::multiline(&mut self.buffer_text)
-                                        .font(TextStyle::Monospace)
-                                        .desired_width(f32::INFINITY)
-                                        .desired_rows(30)
-                                        .lock_focus(true)
-                                        .layouter(&mut layouter),
+                                        let mut layouter = |ui: &egui::Ui, string: &str, _wrap_width: f32| {
+                                            let mut job = egui::text::LayoutJob::default();
+                                            Self::highlight_text_to_layout_job(string, lang, syntax, font_size, &mut job);
+                                            ui.fonts(|f| f.layout_job(job))
+                                        };
+
+                                        ui.add(
+                                            egui::TextEdit::multiline(&mut self.buffer_text)
+                                                .font(TextStyle::Monospace)
+                                                .desired_width(f32::INFINITY)
+                                                .desired_rows(30)
+                                                .lock_focus(true)
+                                                .layouter(&mut layouter),
+                                        );
+                                    });
+                                });
+                            });
+                        } else {
+                            // Full Width Code Editor + Minimap
+                            ui.horizontal(|ui| {
+                                let editor_width = if self.show_minimap { ui.available_width() - 90.0 } else { ui.available_width() };
+
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(editor_width, ui.available_height()),
+                                    Layout::top_down(egui::Align::LEFT),
+                                    |ui| {
+                                        ScrollArea::vertical().show(ui, |ui| {
+                                            let lang = self.current_file_path.as_ref().map_or(LanguageId::Rust, |p| {
+                                                LanguageId::from_extension(p.extension().and_then(|e| e.to_str()).unwrap_or(""))
+                                            });
+                                            let syntax = &self.syntax_engine;
+                                            let font_size = self.font_size;
+
+                                            let mut layouter = |ui: &egui::Ui, string: &str, _wrap_width: f32| {
+                                                let mut job = egui::text::LayoutJob::default();
+                                                Self::highlight_text_to_layout_job(string, lang, syntax, font_size, &mut job);
+                                                ui.fonts(|f| f.layout_job(job))
+                                            };
+
+                                            let edit = ui.add(
+                                                egui::TextEdit::multiline(&mut self.buffer_text)
+                                                    .font(TextStyle::Monospace)
+                                                    .desired_width(f32::INFINITY)
+                                                    .desired_rows(30)
+                                                    .lock_focus(true)
+                                                    .layouter(&mut layouter),
+                                            );
+                                            if edit.changed() {
+                                                self.core_buffer = TextBuffer::from_str(&self.buffer_text);
+                                            }
+                                        });
+                                    },
                                 );
-                                if edit.changed() {
-                                    self.core_buffer = TextBuffer::from_str(&self.buffer_text);
+
+                                // Minimap Column
+                                if self.show_minimap {
+                                    ui.allocate_ui_with_layout(
+                                        Vec2::new(80.0, ui.available_height()),
+                                        Layout::top_down(egui::Align::LEFT),
+                                        |ui| {
+                                            ui.painter().rect_filled(
+                                                ui.available_rect_before_wrap(),
+                                                0.0,
+                                                Color32::from_rgb(25, 25, 25),
+                                            );
+
+                                            ScrollArea::vertical().show(ui, |ui| {
+                                                for line in self.buffer_text.lines().take(60) {
+                                                    let preview_line = if line.len() > 25 { &line[..25] } else { line };
+                                                    ui.label(RichText::new(preview_line).size(4.0).color(Color32::from_rgb(120, 150, 180)));
+                                                }
+                                            });
+                                        },
+                                    );
                                 }
                             });
                         }
                     },
                 );
 
-                // --- BOTTOM: Integrated Terminal (Right of Sidebar, Below Editor) ---
+                // --- BOTTOM: Integrated Terminal ---
                 if self.show_terminal {
                     ui.separator();
                     ui.allocate_ui_with_layout(
@@ -751,16 +1095,16 @@ impl eframe::App for OxideGuiApp {
 }
 
 impl OxideGuiApp {
-    /// Applies syntax highlighting to an egui LayoutJob for the code editor.
     fn highlight_text_to_layout_job(
         text: &str,
         language: LanguageId,
         syntax: &SyntaxEngine,
+        font_size: f32,
         job: &mut egui::text::LayoutJob,
     ) {
         let spans = syntax.highlight(text, language);
         let default_format = egui::TextFormat {
-            font_id: egui::FontId::monospace(14.0),
+            font_id: egui::FontId::monospace(font_size),
             color: Color32::from_rgb(212, 212, 212),
             ..Default::default()
         };
@@ -782,21 +1126,21 @@ impl OxideGuiApp {
                 let token_text = &text[span.start_offset..end];
 
                 let color = match span.token_type {
-                    TokenType::Keyword | TokenType::ControlFlow => Color32::from_rgb(86, 156, 214), // VS Code Blue/Cyan
-                    TokenType::Function | TokenType::Method => Color32::from_rgb(220, 220, 170),    // Yellow
+                    TokenType::Keyword | TokenType::ControlFlow => Color32::from_rgb(86, 156, 214),
+                    TokenType::Function | TokenType::Method => Color32::from_rgb(220, 220, 170),
                     TokenType::Type | TokenType::Struct | TokenType::Enum | TokenType::Trait => {
-                        Color32::from_rgb(78, 201, 176) // Teal / Green
+                        Color32::from_rgb(78, 201, 176)
                     }
-                    TokenType::String => Color32::from_rgb(206, 145, 120),                         // Orange
-                    TokenType::Number => Color32::from_rgb(181, 206, 168),                         // Light Green
-                    TokenType::Comment | TokenType::DocComment => Color32::from_rgb(106, 153, 85),  // Dark Green
-                    TokenType::Macro => Color32::from_rgb(197, 134, 192),                          // Purple
+                    TokenType::String => Color32::from_rgb(206, 145, 120),
+                    TokenType::Number => Color32::from_rgb(181, 206, 168),
+                    TokenType::Comment | TokenType::DocComment => Color32::from_rgb(106, 153, 85),
+                    TokenType::Macro => Color32::from_rgb(197, 134, 192),
                     TokenType::Operator | TokenType::Punctuation => Color32::from_rgb(212, 212, 212),
-                    _ => Color32::from_rgb(156, 220, 254),                                         // Light Blue
+                    _ => Color32::from_rgb(156, 220, 254),
                 };
 
                 let format = egui::TextFormat {
-                    font_id: egui::FontId::monospace(14.0),
+                    font_id: egui::FontId::monospace(font_size),
                     color,
                     ..Default::default()
                 };
@@ -818,7 +1162,7 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Oxide Editor")
+            .with_title("Oxide Editor (VS Code on Rust)")
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([640.0, 480.0]),
         ..Default::default()
