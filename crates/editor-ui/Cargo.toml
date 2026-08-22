@@ -9,4 +9,5 @@ license.workspace = true
 editor-core.workspace = true
 editor-syntax.workspace = true
 editor-workspace.workspace = true
+serde.workspace = true
 thiserror.workspace = true
