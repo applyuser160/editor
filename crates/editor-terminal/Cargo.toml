@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 editor-core.workspace = true
+serde.workspace = true
 thiserror.workspace = true
