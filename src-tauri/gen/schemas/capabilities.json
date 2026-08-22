@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capability for Oxide Editor","local":true,"windows":["main"],"permissions":["core:default","opener:default","dialog:default","clipboard-manager:default"]}}

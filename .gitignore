@@ -1,8 +1,22 @@
+# Rust build artifacts
 /target
+/src-tauri/target
 **/*.rs.bk
 *.swp
 *.lock
+
+# Node.js / Vite build artifacts
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri build artifacts
+src-tauri/gen/
+
+# OS / Editor temporary files
 .DS_Store
 Thumbs.db
 .idea
 .vscode
+*.log
