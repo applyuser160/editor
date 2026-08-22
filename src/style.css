@@ -1134,3 +1134,96 @@ body {
 
 
 
+
+/* Extension Detail Modal */
+.ext-detail-box {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  width: 80%;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  border: 1px solid var(--vscode-panel-border);
+  overflow: hidden;
+}
+.ext-detail-header {
+  display: flex;
+  padding: 20px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  position: relative;
+}
+.ext-detail-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  margin-right: 20px;
+  object-fit: cover;
+}
+.ext-detail-info {
+  flex: 1;
+}
+.ext-detail-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.ext-detail-id {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 8px;
+}
+.ext-detail-desc {
+  font-size: 14px;
+  color: var(--vscode-foreground);
+}
+.ext-detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  font-size: 24px;
+  cursor: pointer;
+}
+.ext-detail-close:hover {
+  color: #ff5555;
+}
+.ext-detail-actions {
+  padding: 10px 20px;
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.ext-detail-readme {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.btn-primary {
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+.btn-danger {
+  background-color: #d13b3b;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-danger:hover {
+  background-color: #b52c2c;
+}

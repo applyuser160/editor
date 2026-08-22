@@ -166,6 +166,28 @@
   <!-- 6. Toast Notification Container -->
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- Extension Detail Modal -->
+  <div id="ext-detail-modal" class="modal-overlay hidden">
+    <div class="ext-detail-box">
+      <div class="ext-detail-header">
+        <img id="ext-detail-icon" src="" alt="Icon" />
+        <div class="ext-detail-info">
+          <div id="ext-detail-title" class="ext-detail-title"></div>
+          <div id="ext-detail-id" class="ext-detail-id"></div>
+          <div id="ext-detail-desc" class="ext-detail-desc"></div>
+        </div>
+        <button id="ext-detail-close" class="ext-detail-close">×</button>
+      </div>
+      <div class="ext-detail-actions">
+        <button id="ext-detail-install-btn" class="btn-primary">インストール</button>
+        <button id="ext-detail-uninstall-btn" class="btn-danger hidden">アンインストール</button>
+      </div>
+      <div id="ext-detail-readme" class="ext-detail-readme">
+        Loading...
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

@@ -43,6 +43,9 @@ pub struct OpenVsxExtension {
     pub display_name: Option<String>,
     pub description: Option<String>,
     pub download_count: Option<u64>,
+    pub icon_url: Option<String>,
+    pub download_url: Option<String>,
+    pub url: Option<String>,
 }
 
 #[tauri::command]
@@ -105,6 +108,11 @@ pub async fn search_openvsx_extensions(query: String) -> Result<Vec<OpenVsxExten
             let display_name = ext.get("displayName").and_then(|v| v.as_str()).map(|s| s.to_string());
             let description = ext.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
             let download_count = ext.get("downloadCount").and_then(|v| v.as_u64());
+            
+            let files = ext.get("files");
+            let icon_url = files.and_then(|f| f.get("icon")).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let download_url = files.and_then(|f| f.get("download")).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let url = ext.get("url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
             results.push(OpenVsxExtension {
                 namespace,
@@ -113,6 +121,9 @@ pub async fn search_openvsx_extensions(query: String) -> Result<Vec<OpenVsxExten
                 display_name,
                 description,
                 download_count,
+                icon_url,
+                download_url,
+                url,
             });
         }
     }
@@ -139,13 +150,35 @@ pub async fn install_openvsx_extension(
     name: String,
     version: String,
     description: String,
+    download_url: Option<String>,
 ) -> Result<String, String> {
     let id = format!("{}.{}", namespace, name);
-    let mut exts = state.extensions.lock().unwrap();
-    if exts.iter().any(|e| e.id == id) {
-        return Ok(format!("Extension '{}' is already installed.", id));
+    {
+        let exts = state.extensions.lock().unwrap();
+        if exts.iter().any(|e| e.id == id) {
+            return Ok(format!("Extension '{}' is already installed.", id));
+        }
     }
 
+    // 実際のダウンロード処理
+    if let Some(url) = download_url {
+        let client = reqwest::Client::new();
+        let resp = client.get(&url).send().await.map_err(|e| format!("Failed to download: {}", e))?;
+        if resp.status().is_success() {
+            let bytes = resp.bytes().await.map_err(|e| format!("Failed to read bytes: {}", e))?;
+            
+            // ローカルディレクトリに保存
+            let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            ext_dir.push("oxide-editor");
+            ext_dir.push("extensions");
+            std::fs::create_dir_all(&ext_dir).map_err(|e| e.to_string())?;
+            
+            let file_path = ext_dir.join(format!("{}.vsix", id));
+            std::fs::write(&file_path, bytes).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let mut exts = state.extensions.lock().unwrap();
     exts.push(ExtensionManifest {
         id: id.clone(),
         name: name.clone(),
@@ -157,6 +190,28 @@ pub async fn install_openvsx_extension(
     });
 
     Ok(format!("Extension '{}' installed successfully!", id))
+}
+
+#[tauri::command]
+pub async fn uninstall_extension(
+    state: State<'_, ExtensionHostState>,
+    id: String,
+) -> Result<String, String> {
+    let mut exts = state.extensions.lock().unwrap();
+    let original_len = exts.len();
+    exts.retain(|e| e.id != id);
+
+    if exts.len() < original_len {
+        let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        ext_dir.push("oxide-editor");
+        ext_dir.push("extensions");
+        let file_path = ext_dir.join(format!("{}.vsix", id));
+        let _ = std::fs::remove_file(file_path); // ignore error if it doesn't exist
+
+        Ok(format!("Extension '{}' uninstalled successfully.", id))
+    } else {
+        Err(format!("Extension '{}' not found.", id))
+    }
 }
 
 #[tauri::command]
