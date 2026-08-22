@@ -20,3 +20,4 @@ Oxide Editor プロジェクトにおけるアーキテクチャ上の重要な�
 | [0002](0002-use-rope-data-structure.md) | Ropey（Ropeデータ構造）によるテキストバッファ管理の採用 | Accepted | 2026-08-22 |
 | [0003](0003-wasm-plugin-architecture.md) | WASM（WebAssembly）によるサンドボックスプラグイン基盤の採用 | Accepted | 2026-08-22 |
 | [0004](0004-tree-sitter-and-lsp-hybrid-syntax.md) | Tree-sitterとLSPによるハイブリッド構文解析・ハイライトの採用 | Accepted | 2026-08-22 |
+| [0005](0005-migrate-electron-to-tauri.md) | ElectronからTauri v2への完全移行 | Accepted | 2026-08-22 |

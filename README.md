@@ -32,6 +32,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 
 ### 📋 全ファイル解析チェックリスト & 調査書
 - 📊 [VS Code 全ファイル網羅的解析チェックリスト (360/360 完了)](docs/checklist/vscode-full-analysis-checklist.md)
+- 🔬 [Electron から Tauri v2 への移行に関する詳細技術調査書](docs/research/electron-to-tauri-migration-research.md)
 - 🔬 [Electron 置換のための Rust GUI フレームワーク徹底比較調査書](docs/research/rust-gui-framework-comparison.md)
 - 🛡️ [非機能要件チェックリスト（IPA準拠）](docs/checklist/nfr.md)
 - 📝 [アーキテクチャ決定記録 (ADR)](docs/adr/README.md)
@@ -45,6 +46,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 - 🌐 [6. Native Shell & Server 要件定義書](docs/requirements/native-shell-server-requirements.md)
 
 ### 📐 レイヤー別 アーキテクチャ設計書 (C4 Model 準拠)
+- 🚀 [★ Tauri v2 統合システム設計書](docs/design/tauri-architecture-design.md)
 - ⚙️ [1. Base レイヤー アーキテクチャ設計書](docs/design/base-layer-architecture.md)
 - 💉 [2. Platform サービス層 アーキテクチャ設計書](docs/design/platform-layer-architecture.md)
 - 📄 [3. Monaco Editor コア アーキテクチャ設計書](docs/design/editor-monaco-architecture.md)
