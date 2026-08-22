@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oxide Editor (VS Code on Tauri v2)</title>
+  <script type="module" crossorigin src="/assets/index-C0-O1sv6.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B2AN2llR.css">
+</head>
+<body>
+  <!-- 1. Title Bar -->
+  <header id="titlebar">
+    <div class="titlebar-left">
+      <span class="app-icon">🦀</span>
+      <span class="app-title">Oxide Editor</span>
+      <nav class="menu-bar">
+        <button class="menu-btn" id="menu-file">ファイル (File)</button>
+        <button class="menu-btn" id="menu-edit">編集 (Edit)</button>
+        <button class="menu-btn" id="menu-view">表示 (View)</button>
+        <button class="menu-btn" id="menu-terminal">ターミナル (Terminal)</button>
+        <button class="menu-btn" id="menu-help">ヘルプ (Help)</button>
+      </nav>
+    </div>
+    <div class="titlebar-center">
+      <button class="quickopen-btn" id="trigger-quickopen">
+        <span>🔍</span>
+        <span class="quickopen-placeholder">Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)</span>
+      </button>
+    </div>
+    <div class="titlebar-right">
+      <span id="window-status">Tauri v2 Online</span>
+    </div>
+  </header>
+
+  <!-- 2. Main Workbench Container -->
+  <div id="workbench">
+    <!-- Activity Bar (Leftmost icons) -->
+    <aside id="activity-bar">
+      <button class="activity-btn active" data-view="explorer" title="エクスプローラー (Ctrl+Shift+E)">📁</button>
+      <button class="activity-btn" data-view="search" title="検索 (Ctrl+Shift+F)">🔍</button>
+      <button class="activity-btn" data-view="scm" title="ソース管理 (Ctrl+Shift+G)">🌿</button>
+      <button class="activity-btn" data-view="extensions" title="拡張機能 (Ctrl+Shift+X)">🧩</button>
+      <div class="activity-bar-bottom">
+        <button class="activity-btn" data-view="settings" title="設定 (Ctrl+,)">⚙</button>
+      </div>
+    </aside>
+
+    <!-- Side Bar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span id="sidebar-title">エクスプローラー</span>
+        <div class="sidebar-actions">
+          <button id="btn-new-file" title="新規ファイル作成">📄+</button>
+          <button id="btn-new-folder" title="新規フォルダ作成">📁+</button>
+          <button id="btn-refresh-tree" title="再読み込み">🔄</button>
+        </div>
+      </div>
+      <div id="sidebar-content">
+        <!-- Explorer / Search / Git / Extensions content injected here -->
+      </div>
+    </aside>
+
+    <!-- Side Bar Resizer -->
+    <div class="resizer horizontal" id="sidebar-resizer"></div>
+
+    <!-- Main Editor & Terminal Area -->
+    <main id="main-area">
+      <!-- Editor Part -->
+      <section id="editor-part">
+        <div id="tab-bar">
+          <div class="tab active" data-path="sample.rs">
+            <span class="tab-title">welcome.rs</span>
+            <span class="tab-close">×</span>
+          </div>
+        </div>
+        <div id="editor-container">
+          <div id="monaco-placeholder">
+            <pre id="code-view"><code>// 🦀 Welcome to Oxide Editor (VS Code on Tauri v2)!
+// Ultra-fast, Memory-Efficient, Native Desktop IDE.
+
+fn main() {
+    let message = "Hello from VS Code on Tauri v2 (Oxide)!";
+    println!("{}", message);
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Terminal Resizer -->
+      <div class="resizer vertical" id="terminal-resizer"></div>
+
+      <!-- Bottom Panel (Terminal) -->
+      <section id="panel-part">
+        <div class="panel-header">
+          <span class="panel-tab active">💻 ターミナル (TERMINAL)</span>
+          <span class="panel-tab">出力 (OUTPUT)</span>
+          <span class="panel-tab">問題 (PROBLEMS)</span>
+          <button id="btn-close-panel" title="パネルを閉じる">×</button>
+        </div>
+        <div id="terminal-container">
+          <div id="terminal-output">
+            <div class="term-line info">Oxide Integrated Terminal (Tauri v2 + Portable-PTY) Ready.</div>
+            <div class="term-line">Windows PowerShell / ConPTY host online.</div>
+          </div>
+          <div class="terminal-input-row">
+            <span class="term-prompt">PS &gt;</span>
+            <input type="text" id="term-input" placeholder="コマンドを入力..." />
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 3. Bottom Status Bar -->
+  <footer id="statusbar">
+    <div class="statusbar-left">
+      <span class="status-item">🌿 main</span>
+      <span class="status-item">⚠️ 0  ❌ 0</span>
+    </div>
+    <div class="statusbar-right">
+      <span class="status-item" id="status-line-col">行: 1, 列: 1</span>
+      <span class="status-item">スペース: 4</span>
+      <span class="status-item">UTF-8</span>
+      <span class="status-item" id="status-language">RUST</span>
+      <span class="status-item highlight" id="global-status">準備完了</span>
+    </div>
+  </footer>
+
+  <!-- 4. QuickPick Modal (Ctrl+P / Ctrl+Shift+P) -->
+  <div id="quickpick-modal" class="hidden">
+    <div class="quickpick-box">
+      <div class="quickpick-input-wrapper">
+        <span class="quickpick-icon">🔍</span>
+        <input type="text" id="quickpick-input" placeholder="ファイル名で検索 (または '>' でコマンド)..." />
+      </div>
+      <div id="quickpick-list"></div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import * as monaco from "monaco-editor";
 
 interface FileEntry {
   name: string;
@@ -7,22 +8,270 @@ interface FileEntry {
   depth: number;
 }
 
-// State
+interface OpenTab {
+  path: string;
+  name: string;
+  model: monaco.editor.ITextModel;
+  isDirty: boolean;
+}
+
+// Global State
+let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
+const openTabs: Map<string, OpenTab> = new Map();
+let activeFilePath: string | null = null;
 let currentActiveView = "explorer";
 let isSidebarVisible = true;
 let isTerminalVisible = true;
 
-// Initialize on DOM loaded
+// Initialize when DOM is ready
 window.addEventListener("DOMContentLoaded", () => {
+  initMonacoEditor();
   setupActivityBar();
   setupResizers();
   setupTerminal();
   setupQuickPick();
   setupShortcuts();
+  setupFileActions();
   loadWorkspaceFiles();
 });
 
-// 1. Activity Bar Navigation
+// 1. Initialize Monaco Editor (VS Code Dark+ Theme)
+function initMonacoEditor() {
+  const container = document.getElementById("editor-container");
+  if (!container) return;
+
+  // Clear placeholder
+  container.innerHTML = "";
+
+  // Define VS Code Dark+ Theme
+  monaco.editor.defineTheme("vscode-dark-plus", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "comment", foreground: "6A9955" },
+      { token: "keyword", foreground: "569CD6" },
+      { token: "string", foreground: "CE9178" },
+      { token: "number", foreground: "B5CEA8" },
+      { token: "type", foreground: "4EC9B0" },
+      { token: "function", foreground: "DCDCAA" },
+      { token: "variable", foreground: "9CDCFE" },
+    ],
+    colors: {
+      "editor.background": "#1e1e1e",
+      "editor.foreground": "#d4d4d4",
+      "editorCursor.foreground": "#aeafad",
+      "editor.lineHighlightBackground": "#2a2d2e",
+      "editorLineNumber.foreground": "#858585",
+      "editorLineNumber.activeForeground": "#c6c6c6",
+      "editor.selectionBackground": "#264f78",
+      "editor.inactiveSelectionBackground": "#3a3d41",
+    },
+  });
+
+  const defaultContent = `// 🦀 Welcome to Oxide Editor (VS Code on Tauri v2)!
+// Ultra-fast, Memory-Efficient, Native Desktop IDE.
+
+fn main() {
+    let message = "Hello from VS Code on Tauri v2 (Oxide)!";
+    println!("{}", message);
+}
+`;
+
+  const initialModel = monaco.editor.createModel(defaultContent, "rust");
+
+  editorInstance = monaco.editor.create(container, {
+    model: initialModel,
+    theme: "vscode-dark-plus",
+    fontSize: 14,
+    fontFamily: "Consolas, 'Courier New', monospace",
+    lineNumbers: "on",
+    roundedSelection: false,
+    scrollBeyondLastLine: false,
+    readOnly: false,
+    cursorBlinking: "smooth",
+    smoothScrolling: true,
+    minimap: {
+      enabled: true,
+      scale: 1,
+      showSlider: "mouseover",
+    },
+    automaticLayout: true,
+    tabSize: 4,
+    insertSpaces: true,
+  });
+
+  // Track cursor position
+  editorInstance.onDidChangeCursorPosition((e) => {
+    const statusLineCol = document.getElementById("status-line-col");
+    if (statusLineCol) {
+      statusLineCol.textContent = `行: ${e.position.lineNumber}, 列: ${e.position.column}`;
+    }
+  });
+
+  // Track content change (dirty flag)
+  initialModel.onDidChangeContent(() => {
+    if (activeFilePath && openTabs.has(activeFilePath)) {
+      const tab = openTabs.get(activeFilePath)!;
+      tab.isDirty = true;
+      updateTabBar();
+    }
+  });
+
+  // Register default tab
+  openTabs.set("welcome.rs", {
+    path: "welcome.rs",
+    name: "welcome.rs",
+    model: initialModel,
+    isDirty: false,
+  });
+  activeFilePath = "welcome.rs";
+  updateTabBar();
+}
+
+// 2. Open / Switch Files in Editor
+async function openFile(path: string, name: string) {
+  if (!editorInstance) return;
+
+  // Check if already open
+  if (openTabs.has(path)) {
+    activeFilePath = path;
+    const tab = openTabs.get(path)!;
+    editorInstance.setModel(tab.model);
+    updateTabBar();
+    updateStatusBar(path);
+    return;
+  }
+
+  try {
+    const content = await invoke<string>("read_file_content", { path });
+    const language = getLanguageFromPath(path);
+    const model = monaco.editor.createModel(content, language);
+
+    model.onDidChangeContent(() => {
+      if (openTabs.has(path)) {
+        const tab = openTabs.get(path)!;
+        tab.isDirty = true;
+        updateTabBar();
+      }
+    });
+
+    openTabs.set(path, {
+      path,
+      name,
+      model,
+      isDirty: false,
+    });
+
+    activeFilePath = path;
+    editorInstance.setModel(model);
+    updateTabBar();
+    updateStatusBar(path);
+
+    showStatusMessage(`開きました: ${name}`);
+  } catch (err) {
+    showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
+  }
+}
+
+// 3. Save Active File (Ctrl+S)
+async function saveActiveFile() {
+  if (!activeFilePath || !editorInstance) return;
+  const tab = openTabs.get(activeFilePath);
+  if (!tab) return;
+
+  const content = tab.model.getValue();
+  try {
+    await invoke("write_file_content", { path: tab.path, content });
+    tab.isDirty = false;
+    updateTabBar();
+    showStatusMessage(`保存完了: ${tab.name}`);
+  } catch (err) {
+    showStatusMessage(`保存失敗: ${err}`);
+  }
+}
+
+// 4. Tab Bar Rendering
+function updateTabBar() {
+  const tabBar = document.getElementById("tab-bar");
+  if (!tabBar) return;
+
+  tabBar.innerHTML = "";
+
+  openTabs.forEach((tab, path) => {
+    const tabEl = document.createElement("div");
+    tabEl.className = `tab ${path === activeFilePath ? "active" : ""}`;
+
+    const titleEl = document.createElement("span");
+    titleEl.className = "tab-title";
+    titleEl.textContent = `${tab.name}${tab.isDirty ? " ●" : ""}`;
+    tabEl.appendChild(titleEl);
+
+    const closeBtn = document.createElement("span");
+    closeBtn.className = "tab-close";
+    closeBtn.textContent = "×";
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeTab(path);
+    };
+    tabEl.appendChild(closeBtn);
+
+    tabEl.onclick = () => openFile(tab.path, tab.name);
+    tabBar.appendChild(tabEl);
+  });
+}
+
+function closeTab(path: string) {
+  if (!openTabs.has(path)) return;
+
+  const tab = openTabs.get(path)!;
+  tab.model.dispose();
+  openTabs.delete(path);
+
+  if (activeFilePath === path) {
+    const remainingKeys = Array.from(openTabs.keys());
+    if (remainingKeys.length > 0) {
+      const nextPath = remainingKeys[remainingKeys.length - 1];
+      openFile(nextPath, openTabs.get(nextPath)!.name);
+    } else {
+      activeFilePath = null;
+      if (editorInstance) {
+        const emptyModel = monaco.editor.createModel("", "plaintext");
+        editorInstance.setModel(emptyModel);
+      }
+    }
+  }
+  updateTabBar();
+}
+
+function getLanguageFromPath(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "rs":
+      return "rust";
+    case "ts":
+      return "typescript";
+    case "js":
+      return "javascript";
+    case "json":
+      return "json";
+    case "md":
+      return "markdown";
+    case "toml":
+      return "ini";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "py":
+      return "python";
+    case "sh":
+      return "shell";
+    default:
+      return "plaintext";
+  }
+}
+
+// 5. Activity Bar & Sidebar View
 function setupActivityBar() {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".activity-btn");
   buttons.forEach((btn) => {
@@ -93,8 +342,8 @@ function updateSidebarView(view: string) {
       titleEl.textContent = "設定 (SETTINGS)";
       contentEl.innerHTML = `
         <div style="padding: 4px;">
-          <div style="margin-bottom: 8px;">フォントサイズ: 14px</div>
-          <div style="margin-bottom: 8px;">タブサイズ: 4 spaces</div>
+          <div style="margin-bottom: 8px;">エディタフォント: Consolas (14px)</div>
+          <div style="margin-bottom: 8px;">テーマ: VS Code Dark+</div>
           <div>ミニマップ: 有効</div>
         </div>
       `;
@@ -102,7 +351,7 @@ function updateSidebarView(view: string) {
   }
 }
 
-// 2. Load Workspace Files via Tauri IPC
+// 6. Workspace File Tree Loading & Actions
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -130,29 +379,44 @@ async function loadWorkspaceFiles() {
   }
 }
 
-async function openFile(path: string, name: string) {
-  try {
-    const content = await invoke<string>("read_file_content", { path });
-    const codeView = document.getElementById("code-view");
-    if (codeView) {
-      codeView.textContent = content;
-    }
+function setupFileActions() {
+  const btnNewFile = document.getElementById("btn-new-file");
+  const btnNewFolder = document.getElementById("btn-new-folder");
+  const btnRefresh = document.getElementById("btn-refresh-tree");
 
-    const tabTitle = document.querySelector(".tab-title");
-    if (tabTitle) {
-      tabTitle.textContent = name;
-    }
+  if (btnNewFile) {
+    btnNewFile.addEventListener("click", async () => {
+      const filename = prompt("新規ファイル名を入力してください:");
+      if (!filename) return;
+      try {
+        await invoke("create_file", { path: filename });
+        await loadWorkspaceFiles();
+        openFile(filename, filename);
+      } catch (err) {
+        alert(`ファイル作成エラー: ${err}`);
+      }
+    });
+  }
 
-    const status = document.getElementById("global-status");
-    if (status) {
-      status.textContent = `開きました: ${name}`;
-    }
-  } catch (err) {
-    console.error("Failed to open file:", err);
+  if (btnNewFolder) {
+    btnNewFolder.addEventListener("click", async () => {
+      const foldername = prompt("新規フォルダ名を入力してください:");
+      if (!foldername) return;
+      try {
+        await invoke("create_directory", { path: foldername });
+        await loadWorkspaceFiles();
+      } catch (err) {
+        alert(`フォルダ作成エラー: ${err}`);
+      }
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => loadWorkspaceFiles());
   }
 }
 
-// 3. Draggable Splitter Resizers
+// 7. Draggable Resizers
 function setupResizers() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebar = document.getElementById("sidebar");
@@ -213,7 +477,7 @@ function setupResizers() {
   }
 }
 
-// 4. Terminal Command Execution via Tauri IPC
+// 8. Terminal Command Execution
 function setupTerminal() {
   const input = document.getElementById("term-input") as HTMLInputElement;
   const output = document.getElementById("terminal-output");
@@ -260,7 +524,7 @@ function appendTermLine(text: string) {
   if (container) container.scrollTop = container.scrollHeight;
 }
 
-// 5. QuickPick & Command Palette (Ctrl+P / Ctrl+Shift+P)
+// 9. QuickPick Modal (Ctrl+P / Ctrl+Shift+P)
 function setupQuickPick() {
   const modal = document.getElementById("quickpick-modal");
   const input = document.getElementById("quickpick-input") as HTMLInputElement;
@@ -294,7 +558,7 @@ function openQuickPick(isCommandMode: boolean) {
   };
 }
 
-function renderQuickPickItems(query: string) {
+async function renderQuickPickItems(query: string) {
   const list = document.getElementById("quickpick-list");
   if (!list) return;
 
@@ -305,7 +569,7 @@ function renderQuickPickItems(query: string) {
     { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
-    { title: "Git: Commit (変更をコミット)", shortcut: "", id: "git_commit" },
+    { title: "Git: Refresh (状態更新)", shortcut: "", id: "git_refresh" },
   ];
 
   if (query.startsWith(">")) {
@@ -324,20 +588,36 @@ function renderQuickPickItems(query: string) {
       });
   } else {
     // File search mode
-    const item = document.createElement("div");
-    item.className = "quickpick-item";
-    item.innerHTML = `<span>📄 sample.rs</span><span style="color: #888;">src/sample.rs</span>`;
-    item.onclick = () => {
-      document.getElementById("quickpick-modal")?.classList.add("hidden");
-      openFile("sample.rs", "sample.rs");
-    };
-    list.appendChild(item);
+    try {
+      const files = await invoke<FileEntry[]>("list_workspace_files");
+      const q = query.trim().toLowerCase();
+      files
+        .filter((f) => !f.is_dir && (!q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)))
+        .forEach((f) => {
+          const item = document.createElement("div");
+          item.className = "quickpick-item";
+          item.innerHTML = `<span>📄 ${f.name}</span><span style="color: #888;">${f.path}</span>`;
+          item.onclick = () => {
+            document.getElementById("quickpick-modal")?.classList.add("hidden");
+            openFile(f.path, f.name);
+          };
+          list.appendChild(item);
+        });
+    } catch (e) {
+      console.error(e);
+    }
   }
 }
 
 function executeCommand(id: string) {
   const panelPart = document.getElementById("panel-part");
   switch (id) {
+    case "save":
+      saveActiveFile();
+      break;
+    case "new_file":
+      document.getElementById("btn-new-file")?.click();
+      break;
     case "toggle_sidebar":
       toggleSidebar();
       break;
@@ -350,10 +630,13 @@ function executeCommand(id: string) {
   }
 }
 
-// 6. Keyboard Shortcuts
+// 10. Global Shortcuts & Status Bar
 function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.shiftKey && e.key === "P") {
+    if (e.ctrlKey && e.key === "s") {
+      e.preventDefault();
+      saveActiveFile();
+    } else if (e.ctrlKey && e.shiftKey && e.key === "P") {
       e.preventDefault();
       openQuickPick(true);
     } else if (e.ctrlKey && e.key === "p") {
@@ -371,4 +654,23 @@ function setupShortcuts() {
       }
     }
   });
+}
+
+function updateStatusBar(path: string) {
+  const langEl = document.getElementById("status-language");
+  if (langEl) {
+    langEl.textContent = getLanguageFromPath(path).toUpperCase();
+  }
+}
+
+function showStatusMessage(msg: string) {
+  const status = document.getElementById("global-status");
+  if (status) {
+    status.textContent = msg;
+    setTimeout(() => {
+      if (status.textContent === msg) {
+        status.textContent = "準備完了";
+      }
+    }, 4000);
+  }
 }

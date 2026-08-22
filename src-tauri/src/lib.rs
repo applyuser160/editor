@@ -9,6 +9,11 @@ pub fn run() {
             commands::list_workspace_files,
             commands::read_file_content,
             commands::write_file_content,
+            commands::create_file,
+            commands::create_directory,
+            commands::delete_file,
+            commands::rename_file,
+            commands::get_file_stat,
             commands::execute_terminal_command
         ])
         .run(tauri::generate_context!())
