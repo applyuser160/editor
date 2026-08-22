@@ -32,6 +32,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 
 ### 📋 全ファイル解析チェックリスト & 調査書
 - 📊 [VS Code 全ファイル網羅的解析チェックリスト (360/360 完了)](docs/checklist/vscode-full-analysis-checklist.md)
+- 🔬 [実装移行に向けた技術調査・ギャップ分析レポート (Ready for Implementation)](docs/research/implementation-readiness-and-gap-analysis.md)
 - 🔬 [Electron から Tauri v2 への移行に関する詳細技術調査書](docs/research/electron-to-tauri-migration-research.md)
 - 🔬 [Electron 置換のための Rust GUI フレームワーク徹底比較調査書](docs/research/rust-gui-framework-comparison.md)
 - 🛡️ [非機能要件チェックリスト（IPA準拠）](docs/checklist/nfr.md)
