@@ -30,37 +30,91 @@ impl LspState {
             return Ok(format!("LSP server for '{}' is already running.", lang));
         }
 
-        let cmd_name = match lang {
-            "rust" => "rust-analyzer",
-            "typescript" | "javascript" => "typescript-language-server",
-            "python" => "pyright-langserver",
-            "go" => "gopls",
-            _ => return Err(format!("Unsupported LSP language: {}", lang)),
-        };
-
-        // Determine working directory & workspace root
         let cur_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let working_dir = if lang == "rust" && cur_dir.join("src-tauri").join("Cargo.toml").exists() {
-            cur_dir.join("src-tauri")
-        } else if !workspace_root.is_empty() && workspace_root != "." {
+        let working_dir = if !workspace_root.is_empty() && workspace_root != "." {
             std::path::PathBuf::from(workspace_root)
         } else {
             cur_dir.clone()
         };
 
-        let mut child = match Command::new(cmd_name)
-            .args(if lang == "typescript" || lang == "javascript" { vec!["--stdio"] } else { vec![] })
-            .current_dir(&working_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                return Err(format!("Could not spawn '{}': {}. Please install it to enable full LSP intelligence.", cmd_name, e));
+        let mut child = match lang {
+            "python" => {
+                let pyright_local = working_dir.join("node_modules").join("pyright").join("dist").join("pyright-langserver.js");
+                if pyright_local.exists() {
+                    Command::new("node")
+                        .arg(&pyright_local)
+                        .arg("--stdio")
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                } else if cfg!(target_os = "windows") {
+                    Command::new("cmd")
+                        .args(["/C", "npx", "-p", "pyright", "pyright-langserver", "--stdio"])
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                } else {
+                    Command::new("pyright-langserver")
+                        .arg("--stdio")
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                }
             }
-        };
+            "typescript" | "javascript" => {
+                let ts_local = working_dir.join("node_modules").join("typescript-language-server").join("lib").join("cli.mjs");
+                if ts_local.exists() {
+                    Command::new("node")
+                        .arg(&ts_local)
+                        .arg("--stdio")
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                } else if cfg!(target_os = "windows") {
+                    Command::new("cmd")
+                        .args(["/C", "typescript-language-server", "--stdio"])
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                } else {
+                    Command::new("typescript-language-server")
+                        .arg("--stdio")
+                        .current_dir(&working_dir)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                }
+            }
+            "rust" => {
+                Command::new("rust-analyzer")
+                    .current_dir(&working_dir)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+            }
+            "go" => {
+                Command::new("gopls")
+                    .current_dir(&working_dir)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+            }
+            _ => return Err(format!("Unsupported LSP language: {}", lang)),
+        }
+        .map_err(|e| format!("Could not spawn language server for '{}': {}", lang, e))?;
 
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("Failed to open stdin for LSP")?));
         let stdout = child.stdout.take().ok_or("Failed to open stdout for LSP")?;
@@ -150,7 +204,7 @@ impl LspState {
         }));
 
         sessions.insert(lang.to_string(), session);
-        Ok(format!("LSP server '{}' initialized successfully.", cmd_name))
+        Ok(format!("LSP server for '{}' initialized successfully.", lang))
     }
 
     pub fn send_notification(&self, lang: &str, method: &str, params: Value) -> Result<(), String> {
@@ -240,7 +294,12 @@ fn handle_incoming_lsp_message(
         if let Some(id) = id_val.as_u64() {
             if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
                 let res_val = if method == "workspace/configuration" {
-                    serde_json::json!([{}])
+                    let count = msg.get("params")
+                        .and_then(|p| p.get("items"))
+                        .and_then(|it| it.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(1);
+                    serde_json::Value::Array(vec![serde_json::json!({}); count])
                 } else {
                     Value::Null
                 };

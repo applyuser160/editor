@@ -265,32 +265,7 @@ async function initLanguageServerIntegration() {
           // Fallback to workspace symbol search
         }
 
-        // 3. Check Rust Standard Library (e.g. String, Vec, Option, Result, etc.)
-        if (lang === "rust") {
-          try {
-            const stdlibMatch = await invoke<SearchMatch | null>("find_rust_stdlib_definition", {
-              symbol: targetSymbol,
-            });
-            if (stdlibMatch) {
-              const fileName = stdlibMatch.file_path.split(/[/\\]/).pop() || stdlibMatch.file_path;
-              await openFile(stdlibMatch.file_path, fileName);
-              const targetTab = openTabs.get(stdlibMatch.file_path);
-              if (targetTab) {
-                return {
-                  uri: targetTab.model.uri,
-                  range: new monaco.Range(
-                    stdlibMatch.line_number,
-                    1,
-                    stdlibMatch.line_number,
-                    targetSymbol.length + 1
-                  ),
-                };
-              }
-            }
-          } catch (e) {}
-        }
-
-        // 4. Search other files in workspace
+        // 3. Search other files in workspace
         try {
           const matches = await invoke<SearchMatch[]>("search_in_workspace", {
             query: targetSymbol,
@@ -624,33 +599,7 @@ async function performGoToDefinition() {
     // Fallback to workspace symbol search
   }
 
-  // 3. Check Rust Standard Library (e.g. String, Vec, Option, Result, etc.)
-  if (lang === "rust") {
-    try {
-      const stdlibMatch = await invoke<SearchMatch | null>("find_rust_stdlib_definition", {
-        symbol: targetSymbol,
-      });
-      if (stdlibMatch) {
-        const fileName = stdlibMatch.file_path.split(/[/\\]/).pop() || stdlibMatch.file_path;
-        await openFile(stdlibMatch.file_path, fileName);
-        if (editor1) {
-          editor1.revealLineInCenter(stdlibMatch.line_number);
-          editor1.setPosition({ lineNumber: stdlibMatch.line_number, column: 1 });
-          const range = new monaco.Range(
-            stdlibMatch.line_number,
-            1,
-            stdlibMatch.line_number,
-            targetSymbol.length + 1
-          );
-          editor1.setSelection(range);
-          showStatusMessage(`📍 定義へジャンプ完了 (Rust Stdlib): '${targetSymbol}' -> ${fileName}:${stdlibMatch.line_number}`);
-          return;
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 4. Fallback: Search workspace
+  // 3. Fallback: Search workspace
   try {
     const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
       query: targetSymbol,
@@ -1368,7 +1317,7 @@ function updateBreadcrumbs(filePath: string | null) {
   document.title = `${fileName} - Oxide Editor`;
 }
 
-// 11. Tab Bar Rendering
+// 11. Tab Bar Rendering & Context Menu
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -1401,6 +1350,11 @@ function updateTabBar() {
     tabEl.appendChild(closeBtn);
 
     tabEl.onclick = () => openFile(tab.path, tab.name);
+    tabEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showTabContextMenu(e.clientX, e.clientY, path);
+    };
     tabBar.appendChild(tabEl);
   });
 
@@ -1428,6 +1382,109 @@ function closeTab(path: string) {
     }
   }
   updateTabBar();
+}
+
+function closeOtherTabs(keepPath: string) {
+  Array.from(openTabs.keys()).forEach((path) => {
+    if (path !== keepPath) {
+      const tab = openTabs.get(path)!;
+      tab.model.dispose();
+      openTabs.delete(path);
+    }
+  });
+  if (activeFilePath !== keepPath) {
+    const keepTab = openTabs.get(keepPath);
+    if (keepTab) openFile(keepTab.path, keepTab.name);
+  } else {
+    updateTabBar();
+  }
+}
+
+function closeTabsToTheRight(targetPath: string) {
+  const keys = Array.from(openTabs.keys());
+  const idx = keys.indexOf(targetPath);
+  if (idx !== -1) {
+    for (let i = idx + 1; i < keys.length; i++) {
+      const p = keys[i];
+      openTabs.get(p)?.model.dispose();
+      openTabs.delete(p);
+    }
+    if (!openTabs.has(activeFilePath || "")) {
+      const lastKey = Array.from(openTabs.keys()).pop();
+      if (lastKey) openFile(lastKey, openTabs.get(lastKey)!.name);
+    } else {
+      updateTabBar();
+    }
+  }
+}
+
+function closeAllTabs() {
+  openTabs.forEach((tab) => tab.model.dispose());
+  openTabs.clear();
+  activeFilePath = null;
+  if (editor1) {
+    editor1.setModel(monaco.editor.createModel("", "plaintext"));
+  }
+  updateTabBar();
+}
+
+function showTabContextMenu(x: number, y: number, targetPath: string) {
+  const dropdown = document.getElementById("global-menu-dropdown");
+  if (!dropdown) return;
+
+  dropdown.innerHTML = "";
+  dropdown.className = "vs-dropdown";
+  dropdown.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+  dropdown.style.top = `${Math.min(y, window.innerHeight - 250)}px`;
+  dropdown.classList.remove("hidden");
+  isTopMenuOpen = true;
+
+  const items = [
+    { label: "閉じる (Close)", shortcut: "Ctrl+W", action: () => closeTab(targetPath) },
+    { label: "他のタブを閉じる (Close Others)", action: () => closeOtherTabs(targetPath) },
+    { label: "右側のタブを閉じる (Close to the Right)", action: () => closeTabsToTheRight(targetPath) },
+    { label: "すべて閉じる (Close All)", shortcut: "Ctrl+K Ctrl+W", action: () => closeAllTabs() },
+    { type: "separator" },
+    {
+      label: "パスをコピー (Copy Path)",
+      action: () => {
+        navigator.clipboard.writeText(targetPath);
+        showStatusMessage("パスをクリップボードにコピーしました");
+      },
+    },
+    {
+      label: "相対パスをコピー (Copy Relative Path)",
+      action: () => {
+        const rel = targetPath.split(/[/\\]/).pop() || targetPath;
+        navigator.clipboard.writeText(rel);
+        showStatusMessage("相対パスをクリップボードにコピーしました");
+      },
+    },
+  ];
+
+  items.forEach((item) => {
+    if (item.type === "separator") {
+      const sep = document.createElement("div");
+      sep.className = "menu-dropdown-separator";
+      dropdown.appendChild(sep);
+      return;
+    }
+
+    const itemEl = document.createElement("div");
+    itemEl.className = "menu-dropdown-item";
+    itemEl.innerHTML = `
+      <div class="item-label-group">
+        <span>${item.label}</span>
+      </div>
+      ${item.shortcut ? `<span class="item-shortcut">${item.shortcut}</span>` : ""}
+    `;
+    itemEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeGlobalMenu();
+      item.action?.();
+    });
+    dropdown.appendChild(itemEl);
+  });
 }
 
 function getLanguageFromPath(path: string): string {
@@ -2172,3 +2229,12 @@ function showStatusMessage(msg: string) {
     }, 4000);
   }
 }
+
+// Prevent default browser context menu globally
+window.addEventListener("contextmenu", (e) => {
+  const target = e.target as HTMLElement;
+  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+    return;
+  }
+  e.preventDefault();
+});
