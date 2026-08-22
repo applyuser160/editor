@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/editor-core",
+    "crates/editor-syntax",
+    "crates/editor-lsp",
+    "crates/editor-workspace",
+    "crates/editor-git",
+    "crates/editor-terminal",
+    "crates/editor-search",
+    "crates/editor-markdown",
+    "crates/editor-plugin",
+    "crates/editor-ui",
+    "crates/editor-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Syun <applyuser160>"]
+license = "MIT"
+description = "A memory-efficient, lightweight VS Code alternative IDE in Rust"
+repository = "https://github.com/applyuser160/editor"
+
+[workspace.dependencies]
+ropey = "1.6"
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+pulldown-cmark = "0.12"
+regex = "1.10"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# Subcrate dependencies
+editor-core = { path = "crates/editor-core" }
+editor-syntax = { path = "crates/editor-syntax" }
+editor-lsp = { path = "crates/editor-lsp" }
+editor-workspace = { path = "crates/editor-workspace" }
+editor-git = { path = "crates/editor-git" }
+editor-terminal = { path = "crates/editor-terminal" }
+editor-search = { path = "crates/editor-search" }
+editor-markdown = { path = "crates/editor-markdown" }
+editor-plugin = { path = "crates/editor-plugin" }
+editor-ui = { path = "crates/editor-ui" }

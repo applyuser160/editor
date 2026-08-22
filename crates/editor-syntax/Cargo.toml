@@ -1,0 +1,11 @@
+[package]
+name = "editor-syntax"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+editor-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true

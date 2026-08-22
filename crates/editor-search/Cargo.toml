@@ -1,0 +1,12 @@
+[package]
+name = "editor-search"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+editor-core.workspace = true
+regex.workspace = true
+serde.workspace = true
+thiserror.workspace = true

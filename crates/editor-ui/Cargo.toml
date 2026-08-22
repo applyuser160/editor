@@ -1,0 +1,12 @@
+[package]
+name = "editor-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+editor-core.workspace = true
+editor-syntax.workspace = true
+editor-workspace.workspace = true
+thiserror.workspace = true

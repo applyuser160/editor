@@ -1,0 +1,10 @@
+[package]
+name = "editor-terminal"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+editor-core.workspace = true
+thiserror.workspace = true
