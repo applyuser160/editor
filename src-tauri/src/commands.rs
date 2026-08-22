@@ -577,11 +577,6 @@ pub async fn git_commit(message: String) -> Result<String, String> {
         return Err("Commit message cannot be empty".to_string());
     }
 
-    let add_res = Command::new("git").args(["add", "."]).output();
-    if let Err(e) = add_res {
-        return Err(format!("git add failed: {}", e));
-    }
-
     let commit_res = Command::new("git")
         .args(["commit", "-m", trimmed])
         .output()
@@ -594,6 +589,68 @@ pub async fn git_commit(message: String) -> Result<String, String> {
         Ok(stdout)
     } else {
         Err(format!("{}\n{}", stdout, stderr))
+    }
+}
+
+#[tauri::command]
+pub async fn git_push() -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["push"])
+        .output()
+        .map_err(|e| format!("git push failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    if out.status.success() {
+        Ok(format!("{}\n{}", stdout, stderr).trim().to_string())
+    } else {
+        Err(format!("{}\n{}", stdout, stderr))
+    }
+}
+
+#[tauri::command]
+pub async fn git_pull() -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["pull"])
+        .output()
+        .map_err(|e| format!("git pull failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    if out.status.success() {
+        Ok(format!("{}\n{}", stdout, stderr).trim().to_string())
+    } else {
+        Err(format!("{}\n{}", stdout, stderr))
+    }
+}
+
+#[tauri::command]
+pub async fn git_stage_file(path: String) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["add", &path])
+        .output()
+        .map_err(|e| format!("git add failed: {}", e))?;
+
+    if out.status.success() {
+        Ok("Staged".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn git_unstage_file(path: String) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["restore", "--staged", &path])
+        .output()
+        .map_err(|e| format!("git restore failed: {}", e))?;
+
+    if out.status.success() {
+        Ok("Unstaged".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).to_string())
     }
 }
 

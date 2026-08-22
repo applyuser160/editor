@@ -161,7 +161,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupFileActions();
   setupFileWatcherListener();
   initExtensionHost();
-  loadWorkspaceFiles();
+  await loadWorkspaceFiles();
+  await restoreSessionState();
 });
 
 // 1. Language Server Protocol (LSP) Integration (Hover, Completion, Definition, Formatting, Diagnostics)
@@ -394,6 +395,141 @@ async function initLanguageServerIntegration() {
         } catch (e) {
           console.error("Formatting error:", e);
         }
+        return [];
+      },
+    });
+
+    // Signature Help Provider (Ctrl+Shift+Space)
+    monaco.languages.registerSignatureHelpProvider(lang, {
+      signatureHelpTriggerCharacters: ["(", ","],
+      provideSignatureHelp: async (model, position) => {
+        const uri = pathToUri(activeFilePath || model.uri.path);
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/signatureHelp",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          });
+          if (res && res.signatures && res.signatures.length > 0) {
+            return {
+              value: {
+                signatures: res.signatures.map((s: any) => ({
+                  label: s.label,
+                  documentation: s.documentation?.value || s.documentation,
+                  parameters: s.parameters?.map((p: any) => ({ label: p.label })) || [],
+                })),
+                activeSignature: res.activeSignature || 0,
+                activeParameter: res.activeParameter || 0,
+              },
+              dispose: () => {},
+            };
+          }
+        } catch (e) {}
+        return null;
+      },
+    });
+
+    // Code Action Provider (Ctrl+.)
+    monaco.languages.registerCodeActionProvider(lang, {
+      provideCodeActions: async (model, range) => {
+        const uri = pathToUri(activeFilePath || model.uri.path);
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/codeAction",
+            params: {
+              textDocument: { uri },
+              range: {
+                start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+                end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+              },
+              context: { diagnostics: [] },
+            },
+          });
+          if (Array.isArray(res)) {
+            return {
+              actions: res.map((a: any) => ({
+                title: a.title,
+                kind: a.kind,
+                isPreferred: Boolean(a.isPreferred),
+              })),
+              dispose: () => {},
+            };
+          }
+        } catch (e) {}
+        return { actions: [], dispose: () => {} };
+      },
+    });
+
+    // Rename Provider (F2)
+    monaco.languages.registerRenameProvider(lang, {
+      provideRenameEdits: async (model, position, newName) => {
+        const uri = pathToUri(activeFilePath || model.uri.path);
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/rename",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              newName,
+            },
+          });
+          if (res && res.changes) {
+            const edits: monaco.languages.IWorkspaceTextEdit[] = [];
+            for (const [fileUri, textEdits] of Object.entries(res.changes)) {
+              (textEdits as any[]).forEach((te) => {
+                edits.push({
+                  resource: monaco.Uri.parse(fileUri),
+                  textEdit: {
+                    range: new monaco.Range(
+                      te.range.start.line + 1,
+                      te.range.start.character + 1,
+                      te.range.end.line + 1,
+                      te.range.end.character + 1
+                    ),
+                    text: te.newText,
+                  },
+                  versionId: undefined,
+                });
+              });
+            }
+            return { edits };
+          }
+        } catch (e) {}
+        return { edits: [] };
+      },
+    });
+
+    // Reference Provider (Shift+F12)
+    monaco.languages.registerReferenceProvider(lang, {
+      provideReferences: async (model, position) => {
+        const uri = pathToUri(activeFilePath || model.uri.path);
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/references",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              context: { includeDeclaration: true },
+            },
+          });
+          if (Array.isArray(res)) {
+            return res.map((r: any) => ({
+              uri: monaco.Uri.parse(r.uri),
+              range: new monaco.Range(
+                r.range.start.line + 1,
+                r.range.start.character + 1,
+                r.range.end.line + 1,
+                r.range.end.character + 1
+              ),
+            }));
+          }
+        } catch (e) {}
         return [];
       },
     });
@@ -1237,7 +1373,7 @@ function setupGridSplitters() {
   }
 }
 
-// 6. Integrated Real-time Terminal (Multiple Sessions)
+// 6. Integrated Real-time Terminal (Multiple Sessions) & Panel Tabs (Issue #28, #31)
 async function setupIntegratedTerminal() {
   const btnAdd = document.getElementById("btn-add-terminal");
   const btnKill = document.getElementById("btn-kill-terminal");
@@ -1249,11 +1385,80 @@ async function setupIntegratedTerminal() {
     }
   });
 
+  setupPanelTabs();
   await createNewTerminalSession();
 
   window.addEventListener("resize", () => {
     const active = terminalSessions.find((s) => s.id === activeTerminalSessionId);
     active?.fitAddon.fit();
+  });
+}
+
+function setupPanelTabs() {
+  const tabTerm = document.getElementById("panel-tab-terminal");
+  const tabOut = document.getElementById("panel-tab-output");
+  const tabProb = document.getElementById("panel-tab-problems");
+  const termContainer = document.getElementById("terminal-container");
+  const outContainer = document.getElementById("output-container");
+  const probContainer = document.getElementById("problems-container");
+  const termActions = document.getElementById("terminal-actions");
+
+  const selectTab = (type: "terminal" | "output" | "problems") => {
+    tabTerm?.classList.toggle("active", type === "terminal");
+    tabOut?.classList.toggle("active", type === "output");
+    tabProb?.classList.toggle("active", type === "problems");
+
+    if (termContainer) termContainer.style.display = type === "terminal" ? "block" : "none";
+    if (outContainer) outContainer.classList.toggle("hidden", type !== "output");
+    if (probContainer) {
+      probContainer.classList.toggle("hidden", type !== "problems");
+      if (type === "problems") renderProblemsPanel();
+    }
+    if (termActions) termActions.style.display = type === "terminal" ? "flex" : "none";
+  };
+
+  tabTerm?.addEventListener("click", () => selectTab("terminal"));
+  tabOut?.addEventListener("click", () => selectTab("output"));
+  tabProb?.addEventListener("click", () => selectTab("problems"));
+}
+
+function renderProblemsPanel() {
+  const treeEl = document.getElementById("problems-tree");
+  if (!treeEl) return;
+
+  treeEl.innerHTML = "";
+  const allMarkers = monaco.editor.getModelMarkers({});
+
+  if (allMarkers.length === 0) {
+    treeEl.innerHTML = `<div style="color: #888; padding: 8px;">ワークスペースに検出された問題はありません。</div>`;
+    return;
+  }
+
+  allMarkers.forEach((m) => {
+    const item = document.createElement("div");
+    item.className = "problem-item";
+    const isErr = m.severity === monaco.MarkerSeverity.Error;
+    const icon = isErr ? "❌" : "⚠️";
+    const iconClass = isErr ? "error" : "warning";
+
+    const path = uriToPath(m.resource.toString());
+    const fileName = path.split("/").pop() || path;
+
+    item.innerHTML = `
+      <span class="problem-icon ${iconClass}">${icon}</span>
+      <span style="color: #fff; font-weight: 500;">${fileName} [${m.startLineNumber}, ${m.startColumn}]:</span>
+      <span style="color: #ccc;">${m.message}</span>
+    `;
+
+    item.onclick = async () => {
+      await openFile(path, fileName);
+      if (editor1) {
+        editor1.revealLineInCenter(m.startLineNumber);
+        editor1.setPosition({ lineNumber: m.startLineNumber, column: m.startColumn });
+      }
+    };
+
+    treeEl.appendChild(item);
   });
 }
 
@@ -1715,7 +1920,11 @@ async function showBreadcrumbPicker(targetPath: string, isFile: boolean, x: numb
   }
 }
 
-// 11. Tab Bar Rendering & Context Menu
+// Closed tabs history stack for Ctrl+Shift+T
+const closedTabsStack: Array<{ path: string; name: string }> = [];
+let draggedTabPath: string | null = null;
+
+// 11. Tab Bar Rendering, Drag & Drop, & Context Menu (Issue #32)
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -1726,6 +1935,40 @@ function updateTabBar() {
     const tabEl = document.createElement("div");
     const isActive = path === activeFilePath;
     tabEl.className = `tab ${isActive ? "active" : ""}`;
+    tabEl.draggable = true;
+
+    // HTML5 Drag & Drop
+    tabEl.addEventListener("dragstart", (e) => {
+      draggedTabPath = path;
+      e.dataTransfer?.setData("text/plain", path);
+    });
+
+    tabEl.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      tabEl.classList.add("drag-over");
+    });
+
+    tabEl.addEventListener("dragleave", () => {
+      tabEl.classList.remove("drag-over");
+    });
+
+    tabEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      tabEl.classList.remove("drag-over");
+      if (draggedTabPath && draggedTabPath !== path) {
+        // Reorder tabs map
+        const entries = Array.from(openTabs.entries());
+        const fromIdx = entries.findIndex(([p]) => p === draggedTabPath);
+        const toIdx = entries.findIndex(([p]) => p === path);
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const [moved] = entries.splice(fromIdx, 1);
+          entries.splice(toIdx, 0, moved);
+          openTabs.clear();
+          entries.forEach(([p, t]) => openTabs.set(p, t));
+          updateTabBar();
+        }
+      }
+    });
 
     const iconEl = document.createElement("span");
     iconEl.className = "tab-icon";
@@ -1748,6 +1991,16 @@ function updateTabBar() {
     tabEl.appendChild(closeBtn);
 
     tabEl.onclick = () => openFile(tab.path, tab.name);
+
+    // Middle-click to close (mouse wheel)
+    tabEl.onauxclick = async (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        await closeTab(path);
+      }
+    };
+
     tabEl.oncontextmenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1757,6 +2010,7 @@ function updateTabBar() {
   });
 
   updateBreadcrumbs(activeFilePath);
+  saveSessionState();
 }
 
 async function closeTab(rawPath: string): Promise<boolean> {
@@ -1768,6 +2022,9 @@ async function closeTab(rawPath: string): Promise<boolean> {
   if (choice === "cancel") {
     return false;
   }
+
+  // Record into closed tabs history stack
+  closedTabsStack.push({ path: tab.path, name: tab.name });
 
   // Send didClose to LSP
   const language = getLanguageFromPath(tab.path);
@@ -1807,6 +2064,45 @@ async function closeTab(rawPath: string): Promise<boolean> {
   }
   updateTabBar();
   return true;
+}
+
+// Restore Last Closed Tab (Ctrl+Shift+T)
+async function restoreLastClosedTab() {
+  if (closedTabsStack.length === 0) {
+    showToast("復元可能な閉じたタブはありません", "info");
+    return;
+  }
+  const last = closedTabsStack.pop()!;
+  await openFile(last.path, last.name);
+  showToast(`復元しました: ${last.name}`, "info");
+}
+
+// Session State Persistence (Issue #34)
+function saveSessionState() {
+  const tabPaths = Array.from(openTabs.keys());
+  localStorage.setItem("oxide_session_tabs", JSON.stringify(tabPaths));
+  if (activeFilePath) {
+    localStorage.setItem("oxide_session_active_tab", activeFilePath);
+  }
+}
+
+async function restoreSessionState() {
+  try {
+    const savedTabsStr = localStorage.getItem("oxide_session_tabs");
+    const activeTab = localStorage.getItem("oxide_session_active_tab");
+    if (savedTabsStr) {
+      const tabPaths: string[] = JSON.parse(savedTabsStr);
+      for (const p of tabPaths) {
+        const name = p.split("/").pop() || p;
+        await openFile(p, name);
+      }
+      if (activeTab && openTabs.has(activeTab)) {
+        openFile(activeTab, openTabs.get(activeTab)!.name);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to restore session state:", e);
+  }
 }
 
 async function closeOtherTabs(targetRawPath: string) {
@@ -2336,7 +2632,7 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 15. SCM (Git) Integration
+// 15. SCM (Git) Integration (Push/Pull/Stage/Unstage)
 async function renderScmView(container: HTMLElement) {
   try {
     const status = await invoke<GitStatusResult>("git_get_status");
@@ -2346,24 +2642,101 @@ async function renderScmView(container: HTMLElement) {
     }
 
     container.innerHTML = `
-      <div style="padding: 4px;">
+      <div style="padding: 6px;">
+        <div class="scm-header-actions">
+          <button id="btn-git-pull" class="scm-action-btn" title="変更を取得 (Pull)">⬇ Pull</button>
+          <button id="btn-git-push" class="scm-action-btn" title="変更を送信 (Push)">⬆ Push</button>
+          <button id="btn-git-sync" class="scm-action-btn" title="同期 (Sync)">🔄 Sync</button>
+        </div>
         <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
         <textarea id="git-commit-msg" rows="2" placeholder="コミットメッセージを入力..." style="width: 100%; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 4px; font-size: 12px;"></textarea>
-        <button id="btn-commit" style="margin-top: 6px; width: 100%; padding: 6px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;">✔ コミット実行 (Commit)</button>
+        <button id="btn-commit" style="margin-top: 6px; width: 100%; padding: 6px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">✔ コミット実行 (Commit)</button>
         <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #aaa;">変更されたファイル (${status.changed_files.length}):</div>
         <div id="scm-files-list" style="margin-top: 6px;"></div>
       </div>
     `;
 
+    document.getElementById("btn-git-pull")?.addEventListener("click", async () => {
+      showToast("Git Pull 実行中...", "info");
+      try {
+        const res = await invoke<string>("git_pull");
+        showToast(res || "Git Pull 完了", "info");
+        await updateGitStatus();
+        await loadWorkspaceFiles();
+      } catch (err) {
+        showToast(`Pull 失敗: ${err}`, "error");
+      }
+    });
+
+    document.getElementById("btn-git-push")?.addEventListener("click", async () => {
+      showToast("Git Push 実行中...", "info");
+      try {
+        const res = await invoke<string>("git_push");
+        showToast(res || "Git Push 完了", "info");
+        await updateGitStatus();
+      } catch (err) {
+        showToast(`Push 失敗: ${err}`, "error");
+      }
+    });
+
+    document.getElementById("btn-git-sync")?.addEventListener("click", async () => {
+      showToast("Git Sync 実行中...", "info");
+      try {
+        await invoke("git_pull");
+        const pushRes = await invoke<string>("git_push");
+        showToast(pushRes || "Git 同期完了", "info");
+        await updateGitStatus();
+        await loadWorkspaceFiles();
+      } catch (err) {
+        showToast(`Sync 失敗: ${err}`, "error");
+      }
+    });
+
     const list = document.getElementById("scm-files-list");
     if (list) {
-      status.changed_files.forEach((f) => {
+      status.changed_files.forEach((rawEntry) => {
+        const trimmed = rawEntry.trim();
+        const statusCode = trimmed.substring(0, 2).trim();
+        const filePath = trimmed.substring(2).trim();
+
+        let tagClass = "modified";
+        let tagText = "M";
+        if (statusCode.includes("?")) { tagClass = "untracked"; tagText = "U"; }
+        else if (statusCode.includes("A")) { tagClass = "added"; tagText = "A"; }
+        else if (statusCode.includes("D")) { tagClass = "deleted"; tagText = "D"; }
+
+        const isStaged = !statusCode.startsWith(" ") && !statusCode.includes("?");
+
         const row = document.createElement("div");
         row.className = "scm-file-row";
         row.innerHTML = `
-          <span>📄 ${f.trim()}</span>
-          <span class="scm-status-tag modified">MODIFIED</span>
+          <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+            <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}">${tagText}</span>
+            <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden; cursor: pointer;">${filePath}</span>
+          </div>
+          <button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button>
         `;
+
+        row.querySelector("span:nth-child(2)")?.addEventListener("click", () => {
+          openFile(filePath, filePath.split("/").pop() || filePath);
+        });
+
+        row.querySelector(".scm-stage-btn")?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            if (isStaged) {
+              await invoke("git_unstage_file", { path: filePath });
+              showToast(`ステージ解除: ${filePath}`, "info");
+            } else {
+              await invoke("git_stage_file", { path: filePath });
+              showToast(`ステージ追加: ${filePath}`, "info");
+            }
+            updateSidebarView("scm");
+          } catch (err) {
+            showToast(`ステージング失敗: ${err}`, "error");
+          }
+        });
+
         list.appendChild(row);
       });
     }
@@ -2374,21 +2747,49 @@ async function renderScmView(container: HTMLElement) {
       btnCommit.onclick = async () => {
         const msg = commitInput.value.trim();
         if (!msg) {
-          alert("コミットメッセージを入力してください");
+          showToast("コミットメッセージを入力してください", "warning");
           return;
         }
         try {
           await invoke<string>("git_commit", { message: msg });
-          showStatusMessage("Git コミット完了");
+          showToast("Git コミット完了", "info");
           updateSidebarView("scm");
         } catch (err) {
-          alert(`コミット失敗: ${err}`);
+          showToast(`コミット失敗: ${err}`, "error");
         }
       };
     }
   } catch (err) {
     container.innerHTML = `<div style="color: #888; padding: 8px;">Git 状態取得エラー: ${err}</div>`;
   }
+}
+
+// Toast Notifications (Issue #30)
+function showToast(message: string, type: "info" | "warning" | "error" = "info", duration = 4000) {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast-item ${type}`;
+
+  const icon = type === "error" ? "❌" : type === "warning" ? "⚠️" : "ℹ️";
+  toast.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span>${icon}</span>
+      <span>${message}</span>
+    </div>
+    <span style="cursor: pointer; color: #888; font-size: 14px;">×</span>
+  `;
+
+  toast.querySelector("span:last-child")?.addEventListener("click", () => toast.remove());
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.3s ease";
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
 }
 
 function formatCurrentDocument() {
@@ -3177,6 +3578,11 @@ function setupShortcuts() {
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "w") {
       e.preventDefault();
       if (activeFilePath) closeTab(activeFilePath);
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "t") {
+      e.preventDefault();
+      await restoreLastClosedTab();
       return;
     }
     if (e.key === "F5") {

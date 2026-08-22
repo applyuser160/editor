@@ -998,4 +998,113 @@ body {
   padding: 0 2px;
 }
 
+/* Toast Notifications (Issue #30) */
+.toast-container {
+  position: fixed;
+  bottom: 30px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.toast-item {
+  min-width: 260px;
+  max-width: 400px;
+  background-color: #252526;
+  border: 1px solid #454545;
+  border-left: 4px solid var(--accent-color);
+  padding: 10px 14px;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  color: var(--text-bright);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-item.info { border-left-color: #007acc; }
+.toast-item.warning { border-left-color: #cca700; }
+.toast-item.error { border-left-color: #f14c4c; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* SCM Enhanced Styles (Issue #20) */
+.scm-header-actions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.scm-action-btn {
+  flex: 1;
+  background-color: #333333;
+  border: 1px solid #444444;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.scm-action-btn:hover {
+  background-color: #444444;
+  color: var(--text-bright);
+}
+
+.scm-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.scm-file-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.scm-stage-btn {
+  background: none;
+  border: none;
+  color: #888888;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.scm-stage-btn:hover {
+  color: var(--text-bright);
+}
+
+/* Problems Panel (Issue #28) */
+.problem-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.problem-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.problem-icon.error { color: #f14c4c; }
+.problem-icon.warning { color: #cca700; }
+.problem-icon.info { color: #3794ff; }
+
+
 
