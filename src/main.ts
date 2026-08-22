@@ -32,6 +32,15 @@ interface ExtensionManifest {
   contributes_themes: string[];
 }
 
+interface OpenVsxExtension {
+  namespace: string;
+  name: string;
+  version: string;
+  display_name: string | null;
+  description: string | null;
+  download_count: number | null;
+}
+
 interface OpenTab {
   path: string;
   name: string;
@@ -61,10 +70,12 @@ let isTerminalVisible = true;
 // Initialize when DOM is ready
 window.addEventListener("DOMContentLoaded", () => {
   initMonacoEditors();
+  setupMenuDropdowns();
   setupActivityBar();
   setupResizers();
   setupGridSplitters();
   setupIntegratedTerminal();
+  setupBranchSwitcher();
   setupQuickPick();
   setupShortcuts();
   setupFileActions();
@@ -73,7 +84,7 @@ window.addEventListener("DOMContentLoaded", () => {
   loadWorkspaceFiles();
 });
 
-// 1. Initialize Monaco Editors (Primary & Secondary Split)
+// 1. Initialize Monaco Editors
 function initMonacoEditors() {
   const container1 = document.getElementById("editor-container-1");
   const container2 = document.getElementById("editor-container-2");
@@ -165,7 +176,200 @@ fn main() {
   updateTabBar();
 }
 
-// 2. 2D Grid Splitter Actions
+// 2. Menu Bar Dropdowns (File, Edit, View, Terminal, Help)
+function setupMenuDropdowns() {
+  const menuButtons = [
+    { btn: "menu-file", dropdown: "dropdown-file" },
+    { btn: "menu-edit", dropdown: "dropdown-edit" },
+    { btn: "menu-view", dropdown: "dropdown-view" },
+    { btn: "menu-terminal", dropdown: "dropdown-terminal" },
+    { btn: "menu-help", dropdown: "dropdown-help" },
+  ];
+
+  function closeAllDropdowns() {
+    menuButtons.forEach((m) => {
+      document.getElementById(m.dropdown)?.classList.add("hidden");
+      document.getElementById(m.btn)?.classList.remove("active");
+    });
+  }
+
+  menuButtons.forEach((m) => {
+    const btnEl = document.getElementById(m.btn);
+    const dropEl = document.getElementById(m.dropdown);
+    if (!btnEl || !dropEl) return;
+
+    btnEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isCurrentlyOpen = !dropEl.classList.contains("hidden");
+      closeAllDropdowns();
+      if (!isCurrentlyOpen) {
+        dropEl.classList.remove("hidden");
+        btnEl.classList.add("active");
+      }
+    });
+  });
+
+  document.addEventListener("click", () => {
+    closeAllDropdowns();
+  });
+
+  // Action dispatch
+  document.querySelectorAll<HTMLElement>(".dropdown-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      closeAllDropdowns();
+      const action = item.getAttribute("data-action");
+      if (!action) return;
+
+      switch (action) {
+        case "new_file":
+          document.getElementById("btn-new-file")?.click();
+          break;
+        case "save_file":
+          saveActiveFile();
+          break;
+        case "close_tab":
+          if (activeFilePath) closeTab(activeFilePath);
+          break;
+        case "undo":
+          editor1?.trigger("menu", "undo", null);
+          break;
+        case "redo":
+          editor1?.trigger("menu", "redo", null);
+          break;
+        case "find":
+          editor1?.trigger("menu", "actions.find", null);
+          break;
+        case "command_palette":
+          openQuickPick(true);
+          break;
+        case "quick_open":
+          openQuickPick(false);
+          break;
+        case "view_explorer":
+          document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
+          break;
+        case "view_search":
+          document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
+          break;
+        case "view_scm":
+          document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
+          break;
+        case "view_extensions":
+          document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+          break;
+        case "toggle_sidebar":
+          toggleSidebar();
+          break;
+        case "toggle_terminal":
+          toggleTerminal();
+          break;
+        case "split_right":
+          document.getElementById("btn-split-right")?.click();
+          break;
+        case "split_down":
+          document.getElementById("btn-split-down")?.click();
+          break;
+        case "clear_terminal":
+          xtermInstance?.clear();
+          break;
+        case "about":
+          alert("🦀 Oxide Editor v0.1.0\nVS Code on Tauri v2 (Rust Core + System WebView2)\nUltra-fast & Lightweight Desktop IDE");
+          break;
+        case "open_github":
+          window.open("https://github.com/applyuser160/editor", "_blank");
+          break;
+      }
+    });
+  });
+}
+
+function toggleTerminal() {
+  const panelPart = document.getElementById("panel-part");
+  if (panelPart) {
+    isTerminalVisible = !isTerminalVisible;
+    panelPart.style.display = isTerminalVisible ? "flex" : "none";
+    editor1?.layout();
+    editor2?.layout();
+    fitAddon?.fit();
+  }
+}
+
+// 3. Status Bar Git Branch Switcher (Click on 🌿 main)
+function setupBranchSwitcher() {
+  const branchEl = document.getElementById("status-branch");
+  if (!branchEl) return;
+
+  branchEl.addEventListener("click", async () => {
+    try {
+      const branches = await invoke<string[]>("git_list_branches");
+      const modal = document.getElementById("quickpick-modal");
+      const input = document.getElementById("quickpick-input") as HTMLInputElement;
+      if (!modal || !input) return;
+
+      modal.classList.remove("hidden");
+      input.value = "";
+      input.placeholder = "切り替えるブランチを選択、または新しいブランチ名を入力...";
+      input.focus();
+
+      quickPickItems = [
+        {
+          id: "new_branch",
+          title: "➕ 新しいブランチを作成して切り替え (Create new branch...)",
+          action: async () => {
+            const newBranchName = prompt("新しいブランチ名を入力してください:");
+            if (newBranchName) {
+              try {
+                const res = await invoke<string>("git_create_branch", { newBranch: newBranchName });
+                showStatusMessage(res);
+                updateGitStatus();
+              } catch (e) {
+                alert(`ブランチ作成失敗: ${e}`);
+              }
+            }
+          },
+        },
+      ];
+
+      branches.forEach((b) => {
+        quickPickItems.push({
+          id: b,
+          title: `🌿 ${b}`,
+          action: async () => {
+            try {
+              const res = await invoke<string>("git_checkout_branch", { branch: b });
+              showStatusMessage(res);
+              updateGitStatus();
+            } catch (e) {
+              alert(`ブランチ切替失敗: ${e}`);
+            }
+          },
+        });
+      });
+
+      renderQuickPickDom();
+    } catch (e) {
+      alert(`ブランチ一覧取得エラー: ${e}`);
+    }
+  });
+}
+
+async function updateGitStatus() {
+  try {
+    const status = await invoke<GitStatusResult>("git_get_status");
+    const branchEl = document.getElementById("status-branch");
+    if (branchEl) {
+      branchEl.textContent = `🌿 ${status.branch}`;
+    }
+    if (currentActiveView === "scm") {
+      const contentEl = document.getElementById("sidebar-content");
+      if (contentEl) renderScmView(contentEl);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// 4. 2D Grid Splitter Actions
 function setupGridSplitters() {
   const btnSplitRight = document.getElementById("btn-split-right");
   const btnSplitDown = document.getElementById("btn-split-down");
@@ -213,7 +417,7 @@ function setupGridSplitters() {
   }
 }
 
-// 3. Integrated Real-time Terminal (xterm.js + Portable-PTY)
+// 5. Integrated Real-time Terminal (xterm.js + Portable-PTY)
 async function setupIntegratedTerminal() {
   const container = document.getElementById("terminal-container");
   if (!container) return;
@@ -279,10 +483,9 @@ async function setupIntegratedTerminal() {
   }
 }
 
-// 4. File Watcher Real-time Sync
+// 6. File Watcher Real-time Sync
 async function setupFileWatcherListener() {
   await listen<{ paths: string[]; kind: string }>("fs-change", async (event) => {
-    // Refresh workspace file tree
     if (currentActiveView === "explorer") {
       loadWorkspaceFiles();
     } else if (currentActiveView === "scm") {
@@ -290,7 +493,6 @@ async function setupFileWatcherListener() {
       if (contentEl) renderScmView(contentEl);
     }
 
-    // Auto-reload active file if modified externally and not dirty
     if (activeFilePath && event.payload.paths.some((p) => p.endsWith(activeFilePath!))) {
       const tab = openTabs.get(activeFilePath);
       if (tab && !tab.isDirty) {
@@ -306,7 +508,7 @@ async function setupFileWatcherListener() {
   });
 }
 
-// 5. Extension Host Initialization
+// 7. Extension Host Initialization
 async function initExtensionHost() {
   try {
     const statusMsg = await invoke<string>("start_extension_sidecar");
@@ -319,7 +521,7 @@ async function initExtensionHost() {
   }
 }
 
-// 6. Open / Switch Files
+// 8. Open / Switch Files
 async function openFile(path: string, name: string) {
   if (!editor1) return;
 
@@ -363,7 +565,7 @@ async function openFile(path: string, name: string) {
   }
 }
 
-// 7. Save Active File (Ctrl+S)
+// 9. Save Active File (Ctrl+S)
 async function saveActiveFile() {
   if (!activeFilePath || !editor1) return;
   const tab = openTabs.get(activeFilePath);
@@ -380,7 +582,7 @@ async function saveActiveFile() {
   }
 }
 
-// 8. Tab Bar Rendering
+// 10. Tab Bar Rendering
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -450,7 +652,7 @@ function getLanguageFromPath(path: string): string {
   }
 }
 
-// 9. Activity Bar & All Sidebar Views
+// 11. Activity Bar & All Sidebar Views
 function setupActivityBar() {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".activity-btn");
   buttons.forEach((btn) => {
@@ -510,7 +712,7 @@ async function updateSidebarView(view: string) {
       break;
 
     case "extensions":
-      titleEl.textContent = "拡張機能 (EXTENSIONS)";
+      titleEl.textContent = "拡張機能 (OPEN VSX)";
       renderExtensionsView(contentEl);
       break;
 
@@ -541,33 +743,126 @@ async function updateSidebarView(view: string) {
   }
 }
 
-// 10. Extensions Viewlet
+// 12. Open VSX Marketplace Extensions Viewlet (VSCodium Compatible)
 async function renderExtensionsView(container: HTMLElement) {
-  try {
-    const exts = await invoke<ExtensionManifest[]>("get_installed_extensions");
-    container.innerHTML = `<div style="padding: 6px;" id="ext-list-box"></div>`;
-    const box = document.getElementById("ext-list-box");
-    if (!box) return;
+  container.innerHTML = `
+    <div style="padding: 4px; display: flex; flex-direction: column; height: 100%;">
+      <input type="text" id="openvsx-search-input" placeholder="Open VSX マーケットプレイスを検索 (例: rust, theme, python)..." style="width: 100%; padding: 6px 8px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; font-size: 12px; margin-bottom: 8px;" />
+      <div id="installed-extensions-header" style="font-size: 11px; font-weight: bold; color: #aaa; margin: 4px 0;">📦 インストール済み (Installed)</div>
+      <div id="installed-ext-list"></div>
+      <div id="marketplace-extensions-header" style="font-size: 11px; font-weight: bold; color: #aaa; margin: 8px 0 4px 0;">🌐 Open VSX マーケットプレイス (Popular)</div>
+      <div id="openvsx-ext-list" style="flex: 1; overflow-y: auto;"></div>
+    </div>
+  `;
 
-    exts.forEach((ext) => {
-      const card = document.createElement("div");
-      card.style.cssText = "padding: 8px; background: #2a2d2e; border-radius: 4px; margin-bottom: 8px;";
-      card.innerHTML = `
-        <div style="font-weight: bold; color: #fff; display: flex; justify-content: space-between;">
-          <span>${ext.name}</span>
-          <span style="font-size: 10px; color: #888;">v${ext.version}</span>
-        </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 2px;">${ext.description}</div>
-        <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Installed & Active)</div>
-      `;
-      box.appendChild(card);
+  const installedList = document.getElementById("installed-ext-list");
+  const marketplaceList = document.getElementById("openvsx-ext-list");
+  const searchInput = document.getElementById("openvsx-search-input") as HTMLInputElement;
+
+  // Render installed
+  if (installedList) {
+    try {
+      const exts = await invoke<ExtensionManifest[]>("get_installed_extensions");
+      installedList.innerHTML = "";
+      exts.forEach((ext) => {
+        const card = document.createElement("div");
+        card.className = "openvsx-ext-card";
+        card.innerHTML = `
+          <div class="openvsx-ext-header">
+            <span class="openvsx-ext-title">${ext.name}</span>
+            <span class="openvsx-ext-id">v${ext.version}</span>
+          </div>
+          <div class="openvsx-ext-desc">${ext.description}</div>
+          <div class="openvsx-ext-footer">
+            <span style="font-size: 10px; color: #00ff80;">● 有効 (Active)</span>
+          </div>
+        `;
+        installedList.appendChild(card);
+      });
+    } catch (e) {
+      installedList.innerHTML = `<div style="color: #888; font-size: 11px;">読込エラー: ${e}</div>`;
+    }
+  }
+
+  // Search Open VSX
+  async function searchMarketplace(query: string) {
+    if (!marketplaceList) return;
+    marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">Open VSX を検索中...</div>`;
+
+    try {
+      const results = await invoke<OpenVsxExtension[]>("search_openvsx_extensions", { query });
+      marketplaceList.innerHTML = "";
+
+      if (results.length === 0) {
+        marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">一致する拡張機能は見つかりませんでした</div>`;
+        return;
+      }
+
+      results.forEach((ext) => {
+        const card = document.createElement("div");
+        card.className = "openvsx-ext-card";
+        const title = ext.display_name || ext.name;
+        const id = `${ext.namespace}.${ext.name}`;
+        const downloads = ext.download_count ? `${ext.download_count.toLocaleString()} DL` : "";
+
+        card.innerHTML = `
+          <div class="openvsx-ext-header">
+            <span class="openvsx-ext-title">${title}</span>
+            <span class="openvsx-ext-id">${id}</span>
+          </div>
+          <div class="openvsx-ext-desc">${ext.description || "No description provided."}</div>
+          <div class="openvsx-ext-footer">
+            <span class="openvsx-ext-downloads">📥 ${downloads} (v${ext.version})</span>
+            <button class="btn-install-ext" data-id="${id}">インストール</button>
+          </div>
+        `;
+
+        const btn = card.querySelector<HTMLButtonElement>(".btn-install-ext");
+        if (btn) {
+          btn.addEventListener("click", async () => {
+            btn.textContent = "インストール中...";
+            btn.disabled = true;
+            try {
+              const res = await invoke<string>("install_openvsx_extension", {
+                namespace: ext.namespace,
+                name: ext.name,
+                version: ext.version,
+                description: ext.description || "",
+              });
+              showStatusMessage(res);
+              btn.textContent = "✓ インストール済み";
+              btn.style.backgroundColor = "#2ea043";
+            } catch (err) {
+              alert(`インストール失敗: ${err}`);
+              btn.textContent = "インストール";
+              btn.disabled = false;
+            }
+          });
+        }
+
+        marketplaceList.appendChild(card);
+      });
+    } catch (err) {
+      marketplaceList.innerHTML = `<div style="color: #ff5555; font-size: 11px;">Open VSX 接続エラー: ${err}</div>`;
+    }
+  }
+
+  // Initial load
+  searchMarketplace("");
+
+  // Search input handler
+  if (searchInput) {
+    let timeout: any = null;
+    searchInput.addEventListener("input", () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        searchMarketplace(searchInput.value);
+      }, 400);
     });
-  } catch (e) {
-    container.innerHTML = `<div style="color: #888; padding: 8px;">拡張機能読込エラー: ${e}</div>`;
   }
 }
 
-// 11. Search Feature Integration
+// 13. Search Feature Integration
 function setupSearchInput() {
   const input = document.getElementById("global-search-input") as HTMLInputElement;
   const list = document.getElementById("search-results-list");
@@ -615,10 +910,15 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 12. SCM (Git) Integration
+// 14. SCM (Git) Integration
 async function renderScmView(container: HTMLElement) {
   try {
     const status = await invoke<GitStatusResult>("git_get_status");
+    const branchEl = document.getElementById("status-branch");
+    if (branchEl) {
+      branchEl.textContent = `🌿 ${status.branch}`;
+    }
+
     container.innerHTML = `
       <div style="padding: 4px;">
         <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
@@ -665,7 +965,7 @@ async function renderScmView(container: HTMLElement) {
   }
 }
 
-// 13. Settings Handlers
+// 15. Settings Handlers
 function setupSettingsHandlers() {
   const themeSel = document.getElementById("theme-selector") as HTMLSelectElement;
   const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
@@ -687,7 +987,7 @@ function setupSettingsHandlers() {
   }
 }
 
-// 14. Workspace File Tree Loading & Actions
+// 16. Workspace File Tree Loading & Actions
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -775,7 +1075,7 @@ function setupFileActions() {
   }
 }
 
-// 15. Draggable Splitter Resizers
+// 17. Draggable Splitter Resizers
 function setupResizers() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebar = document.getElementById("sidebar");
@@ -844,7 +1144,7 @@ function setupResizers() {
   }
 }
 
-// 16. QuickPick Modal with Keyboard Navigation (Arrow Keys + Enter)
+// 18. QuickPick Modal with Keyboard Navigation
 function setupQuickPick() {
   const modal = document.getElementById("quickpick-modal");
   const input = document.getElementById("quickpick-input") as HTMLInputElement;
@@ -888,6 +1188,7 @@ function openQuickPick(isCommandMode: boolean) {
 
   modal.classList.remove("hidden");
   input.value = isCommandMode ? "> " : "";
+  input.placeholder = "ファイル名で検索 (または '>' でコマンド)...";
   input.focus();
   quickPickSelectedIndex = 0;
   fetchAndRenderQuickPick(input.value);
@@ -909,6 +1210,7 @@ async function fetchAndRenderQuickPick(query: string) {
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
     { title: "Git: Open SCM View (ソース管理を開く)", shortcut: "Ctrl+Shift+G", id: "open_scm" },
+    { title: "Git: Switch Branch (ブランチ切り替え)", shortcut: "", id: "switch_branch" },
   ];
 
   if (query.startsWith(">")) {
@@ -970,7 +1272,6 @@ function renderQuickPickDom() {
 }
 
 function executeCommand(id: string) {
-  const panelPart = document.getElementById("panel-part");
   switch (id) {
     case "split_right":
       document.getElementById("btn-split-right")?.click();
@@ -988,21 +1289,18 @@ function executeCommand(id: string) {
       toggleSidebar();
       break;
     case "toggle_terminal":
-      if (panelPart) {
-        isTerminalVisible = !isTerminalVisible;
-        panelPart.style.display = isTerminalVisible ? "flex" : "none";
-        editor1?.layout();
-        editor2?.layout();
-        fitAddon?.fit();
-      }
+      toggleTerminal();
       break;
     case "open_scm":
       document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
       break;
+    case "switch_branch":
+      document.getElementById("status-branch")?.click();
+      break;
   }
 }
 
-// 17. Global Shortcuts & Status Bar
+// 19. Global Shortcuts & Status Bar
 function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "s") {
@@ -1019,14 +1317,7 @@ function setupShortcuts() {
       toggleSidebar();
     } else if (e.ctrlKey && e.key === "j") {
       e.preventDefault();
-      const panelPart = document.getElementById("panel-part");
-      if (panelPart) {
-        isTerminalVisible = !isTerminalVisible;
-        panelPart.style.display = isTerminalVisible ? "flex" : "none";
-        editor1?.layout();
-        editor2?.layout();
-        fitAddon?.fit();
-      }
+      toggleTerminal();
     }
   });
 }

@@ -13,11 +13,59 @@
       <span class="app-icon">🦀</span>
       <span class="app-title">Oxide Editor</span>
       <nav class="menu-bar">
-        <button class="menu-btn" id="menu-file">ファイル (File)</button>
-        <button class="menu-btn" id="menu-edit">編集 (Edit)</button>
-        <button class="menu-btn" id="menu-view">表示 (View)</button>
-        <button class="menu-btn" id="menu-terminal">ターミナル (Terminal)</button>
-        <button class="menu-btn" id="menu-help">ヘルプ (Help)</button>
+        <div class="menu-item-wrapper">
+          <button class="menu-btn" id="menu-file">ファイル (File)</button>
+          <div class="dropdown-menu hidden" id="dropdown-file">
+            <div class="dropdown-item" data-action="new_file"><span>新規ファイル (New File)</span><span class="shortcut">Ctrl+N</span></div>
+            <div class="dropdown-item" data-action="save_file"><span>保存 (Save)</span><span class="shortcut">Ctrl+S</span></div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" data-action="close_tab"><span>タブを閉じる (Close Tab)</span><span class="shortcut">Ctrl+W</span></div>
+          </div>
+        </div>
+
+        <div class="menu-item-wrapper">
+          <button class="menu-btn" id="menu-edit">編集 (Edit)</button>
+          <div class="dropdown-menu hidden" id="dropdown-edit">
+            <div class="dropdown-item" data-action="undo"><span>元に戻す (Undo)</span><span class="shortcut">Ctrl+Z</span></div>
+            <div class="dropdown-item" data-action="redo"><span>やり直し (Redo)</span><span class="shortcut">Ctrl+Y</span></div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" data-action="find"><span>検索 (Find)</span><span class="shortcut">Ctrl+F</span></div>
+          </div>
+        </div>
+
+        <div class="menu-item-wrapper">
+          <button class="menu-btn" id="menu-view">表示 (View)</button>
+          <div class="dropdown-menu hidden" id="dropdown-view">
+            <div class="dropdown-item" data-action="command_palette"><span>コマンドパレット (Command Palette)</span><span class="shortcut">Ctrl+Shift+P</span></div>
+            <div class="dropdown-item" data-action="quick_open"><span>クイックオープン (Quick Open)</span><span class="shortcut">Ctrl+P</span></div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" data-action="view_explorer"><span>エクスプローラー (Explorer)</span><span class="shortcut">Ctrl+Shift+E</span></div>
+            <div class="dropdown-item" data-action="view_search"><span>検索 (Search)</span><span class="shortcut">Ctrl+Shift+F</span></div>
+            <div class="dropdown-item" data-action="view_scm"><span>ソース管理 (Source Control)</span><span class="shortcut">Ctrl+Shift+G</span></div>
+            <div class="dropdown-item" data-action="view_extensions"><span>拡張機能 (Extensions)</span><span class="shortcut">Ctrl+Shift+X</span></div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" data-action="toggle_sidebar"><span>サイドバーの切り替え</span><span class="shortcut">Ctrl+B</span></div>
+            <div class="dropdown-item" data-action="toggle_terminal"><span>ターミナルの切り替え</span><span class="shortcut">Ctrl+J</span></div>
+            <div class="dropdown-item" data-action="split_right"><span>エディターを右に分割</span><span class="shortcut">◫</span></div>
+            <div class="dropdown-item" data-action="split_down"><span>エディターを下に分割</span><span class="shortcut">⬒</span></div>
+          </div>
+        </div>
+
+        <div class="menu-item-wrapper">
+          <button class="menu-btn" id="menu-terminal">ターミナル (Terminal)</button>
+          <div class="dropdown-menu hidden" id="dropdown-terminal">
+            <div class="dropdown-item" data-action="toggle_terminal"><span>ターミナルを開く/閉じる</span><span class="shortcut">Ctrl+J</span></div>
+            <div class="dropdown-item" data-action="clear_terminal"><span>ターミナルをクリア</span><span class="shortcut"></span></div>
+          </div>
+        </div>
+
+        <div class="menu-item-wrapper">
+          <button class="menu-btn" id="menu-help">ヘルプ (Help)</button>
+          <div class="dropdown-menu hidden" id="dropdown-help">
+            <div class="dropdown-item" data-action="about"><span>Oxide Editor について (About)</span><span class="shortcut"></span></div>
+            <div class="dropdown-item" data-action="open_github"><span>GitHub リポジトリを開く</span><span class="shortcut"></span></div>
+          </div>
+        </div>
       </nav>
     </div>
     <div class="titlebar-center">
@@ -27,18 +75,18 @@
       </button>
     </div>
     <div class="titlebar-right">
-      <span id="window-status">Tauri v2 Online</span>
+      <span id="window-status">Extension Host (Node.js) Ready</span>
     </div>
   </header>
 
   <!-- 2. Main Workbench Container -->
   <div id="workbench">
-    <!-- Activity Bar (Leftmost icons) -->
+    <!-- Activity Bar -->
     <aside id="activity-bar">
       <button class="activity-btn active" data-view="explorer" title="エクスプローラー (Ctrl+Shift+E)">📁</button>
       <button class="activity-btn" data-view="search" title="検索 (Ctrl+Shift+F)">🔍</button>
       <button class="activity-btn" data-view="scm" title="ソース管理 (Ctrl+Shift+G)">🌿</button>
-      <button class="activity-btn" data-view="extensions" title="拡張機能 (Ctrl+Shift+X)">🧩</button>
+      <button class="activity-btn" data-view="extensions" title="拡張機能 (Open VSX Marketplace) (Ctrl+Shift+X)">🧩</button>
       <div class="activity-bar-bottom">
         <button class="activity-btn" data-view="settings" title="設定 (Ctrl+,)">⚙</button>
       </div>
@@ -48,15 +96,13 @@
     <aside id="sidebar">
       <div class="sidebar-header">
         <span id="sidebar-title">エクスプローラー</span>
-        <div class="sidebar-actions">
+        <div class="sidebar-actions" id="sidebar-header-actions">
           <button id="btn-new-file" title="新規ファイル作成">📄+</button>
           <button id="btn-new-folder" title="新規フォルダ作成">📁+</button>
           <button id="btn-refresh-tree" title="再読み込み">🔄</button>
         </div>
       </div>
-      <div id="sidebar-content">
-        <!-- Explorer / Search / Git / Extensions content injected here -->
-      </div>
+      <div id="sidebar-content"></div>
     </aside>
 
     <!-- Side Bar Resizer -->
@@ -67,9 +113,7 @@
       <!-- Editor Part with 2D Grid Split Support -->
       <section id="editor-part">
         <div class="editor-header-row">
-          <div id="tab-bar">
-            <!-- Tabs dynamically injected here -->
-          </div>
+          <div id="tab-bar"></div>
           <div class="editor-actions">
             <button class="editor-action-btn" id="btn-split-right" title="エディターを右に分割 (Split Right)">◫</button>
             <button class="editor-action-btn" id="btn-split-down" title="エディターを下に分割 (Split Down)">⬒</button>
@@ -98,16 +142,7 @@
           <span class="panel-tab">問題 (PROBLEMS)</span>
           <button id="btn-close-panel" title="パネルを閉じる">×</button>
         </div>
-        <div id="terminal-container">
-          <div id="terminal-output">
-            <div class="term-line info">Oxide Integrated Terminal (Tauri v2 + Portable-PTY) Ready.</div>
-            <div class="term-line">Windows PowerShell / ConPTY host online.</div>
-          </div>
-          <div class="terminal-input-row">
-            <span class="term-prompt">PS &gt;</span>
-            <input type="text" id="term-input" placeholder="コマンドを入力..." />
-          </div>
-        </div>
+        <div id="terminal-container"></div>
       </section>
     </main>
   </div>
@@ -115,7 +150,7 @@
   <!-- 3. Bottom Status Bar -->
   <footer id="statusbar">
     <div class="statusbar-left">
-      <span class="status-item">🌿 main</span>
+      <span class="status-item clickable" id="status-branch" title="クリックしてブランチを切り替え">🌿 main</span>
       <span class="status-item">⚠️ 0  ❌ 0</span>
     </div>
     <div class="statusbar-right">
@@ -127,7 +162,7 @@
     </div>
   </footer>
 
-  <!-- 4. QuickPick Modal (Ctrl+P / Ctrl+Shift+P) -->
+  <!-- 4. QuickPick Modal (Ctrl+P / Ctrl+Shift+P / Branch Switcher) -->
   <div id="quickpick-modal" class="hidden">
     <div class="quickpick-box">
       <div class="quickpick-input-wrapper">

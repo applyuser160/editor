@@ -31,7 +31,7 @@ body {
   user-select: none;
 }
 
-/* 1. Title Bar */
+/* 1. Title Bar & Menus */
 #titlebar {
   height: 35px;
   background-color: var(--bg-titlebar);
@@ -40,6 +40,8 @@ body {
   justify-content: space-between;
   padding: 0 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  z-index: 50;
 }
 
 .titlebar-left {
@@ -60,7 +62,11 @@ body {
 
 .menu-bar {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+}
+
+.menu-item-wrapper {
+  position: relative;
 }
 
 .menu-btn {
@@ -73,9 +79,57 @@ body {
   cursor: pointer;
 }
 
-.menu-btn:hover {
+.menu-btn:hover, .menu-btn.active {
   background-color: var(--bg-hover);
   color: var(--text-bright);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 1000;
+}
+
+.dropdown-menu.hidden {
+  display: none;
+}
+
+.dropdown-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--text-main);
+}
+
+.dropdown-item:hover {
+  background-color: var(--accent-color);
+  color: var(--text-bright);
+}
+
+.dropdown-item .shortcut {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 12px;
+}
+
+.dropdown-item:hover .shortcut {
+  color: var(--text-bright);
+}
+
+.dropdown-separator {
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
 }
 
 .titlebar-center {
@@ -165,7 +219,7 @@ body {
 
 /* Side Bar */
 #sidebar {
-  width: 260px;
+  width: 280px;
   background-color: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
@@ -425,49 +479,8 @@ body {
 #terminal-container {
   flex: 1;
   background-color: #181818;
-  padding: 8px 12px;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  font-family: Consolas, monospace;
-  font-size: 13px;
-}
-
-#terminal-output {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.term-line {
-  color: #00ff80;
-}
-
-.term-line.info {
-  color: #0096ff;
-}
-
-.terminal-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.term-prompt {
-  color: #00b4ff;
-  font-weight: bold;
-}
-
-#term-input {
-  flex: 1;
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-family: inherit;
-  font-size: inherit;
-  outline: none;
+  padding: 4px;
+  overflow: hidden;
 }
 
 /* 3. Status Bar */
@@ -488,6 +501,16 @@ body {
   gap: 12px;
 }
 
+.status-item.clickable {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.status-item.clickable:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
 .status-item.highlight {
   background-color: rgba(255, 255, 255, 0.2);
   padding: 2px 6px;
@@ -505,7 +528,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  z-index: 100;
+  z-index: 2000;
   display: flex;
   flex-direction: column;
 }
@@ -532,7 +555,7 @@ body {
 }
 
 #quickpick-list {
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
   padding: 4px;
 }
@@ -552,59 +575,63 @@ body {
   color: var(--text-bright);
 }
 
-/* Search results */
-.search-result-item {
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+/* Open VSX Extension Cards */
+.openvsx-ext-card {
+  padding: 10px;
+  background: #2a2d2e;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.search-result-item:hover {
-  background-color: var(--bg-hover);
-}
-
-.search-file-title {
-  font-weight: 600;
-  color: #9cdcfe;
-  font-size: 12px;
-}
-
-.search-match-line {
-  font-family: Consolas, monospace;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-/* Git SCM */
-.scm-file-row {
+.openvsx-ext-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+}
+
+.openvsx-ext-title {
+  font-weight: 600;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.openvsx-ext-id {
+  font-size: 11px;
+  color: #858585;
+}
+
+.openvsx-ext-desc {
+  font-size: 11px;
+  color: #aaaaaa;
+  line-height: 1.4;
+}
+
+.openvsx-ext-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.openvsx-ext-downloads {
+  font-size: 11px;
+  color: #858585;
+}
+
+.btn-install-ext {
+  padding: 4px 10px;
+  background-color: #007acc;
+  border: none;
+  color: #ffffff;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 
-.scm-file-row:hover {
-  background-color: var(--bg-hover);
-}
-
-.scm-status-tag {
-  font-weight: bold;
-  font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.scm-status-tag.modified {
-  background-color: #cca700;
-  color: #000;
-}
-
-.scm-status-tag.added {
-  background-color: #89d185;
-  color: #000;
+.btn-install-ext:hover {
+  background-color: #0098ff;
 }

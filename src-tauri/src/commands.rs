@@ -33,6 +33,145 @@ pub struct GitStatusResult {
     pub changed_files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenVsxExtension {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub download_count: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn search_openvsx_extensions(query: String) -> Result<Vec<OpenVsxExtension>, String> {
+    let q = query.trim();
+    let url = if q.is_empty() {
+        "https://open-vsx.org/api/-/search?size=15&sortBy=downloadCount&sortOrder=desc".to_string()
+    } else {
+        format!("https://open-vsx.org/api/-/search?query={}&size=15", urlencoding_simple(q))
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Oxide-Editor/0.1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&url).send().await.map_err(|e| format!("Network request failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Open VSX returned HTTP {}", resp.status()));
+    }
+
+    let json: serde_json::Value = resp.json().await.map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    let mut results = Vec::new();
+
+    if let Some(extensions) = json.get("extensions").and_then(|e| e.as_array()) {
+        for ext in extensions {
+            let namespace = ext.get("namespace").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = ext.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let version = ext.get("version").and_then(|v| v.as_str()).unwrap_or("1.0.0").to_string();
+            let display_name = ext.get("displayName").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let description = ext.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let download_count = ext.get("downloadCount").and_then(|v| v.as_u64());
+
+            results.push(OpenVsxExtension {
+                namespace,
+                name,
+                version,
+                display_name,
+                description,
+                download_count,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+fn urlencoding_simple(s: &str) -> String {
+    let mut encoded = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{:02X}", b));
+        }
+    }
+    encoded
+}
+
+#[tauri::command]
+pub async fn install_openvsx_extension(
+    state: State<'_, ExtensionHostState>,
+    namespace: String,
+    name: String,
+    version: String,
+    description: String,
+) -> Result<String, String> {
+    let id = format!("{}.{}", namespace, name);
+    let mut exts = state.extensions.lock().unwrap();
+    if exts.iter().any(|e| e.id == id) {
+        return Ok(format!("Extension '{}' is already installed.", id));
+    }
+
+    exts.push(ExtensionManifest {
+        id: id.clone(),
+        name: name.clone(),
+        version,
+        description,
+        main: None,
+        contributes_languages: vec![],
+        contributes_themes: vec![],
+    });
+
+    Ok(format!("Extension '{}' installed successfully!", id))
+}
+
+#[tauri::command]
+pub async fn git_list_branches() -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["branch", "--list"])
+        .output()
+        .map_err(|e| format!("git branch failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let branches = stdout
+        .lines()
+        .map(|l| l.trim().trim_start_matches('*').trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    Ok(branches)
+}
+
+#[tauri::command]
+pub async fn git_checkout_branch(branch: String) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["checkout", branch.trim()])
+        .output()
+        .map_err(|e| format!("git checkout failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(format!("Switched to branch '{}'", branch.trim()))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn git_create_branch(new_branch: String) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", new_branch.trim()])
+        .output()
+        .map_err(|e| format!("git checkout -b failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(format!("Created and switched to branch '{}'", new_branch.trim()))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn get_installed_extensions(
     state: State<'_, ExtensionHostState>,

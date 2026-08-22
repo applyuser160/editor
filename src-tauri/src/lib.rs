@@ -24,6 +24,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::search_openvsx_extensions,
+            commands::install_openvsx_extension,
+            commands::git_list_branches,
+            commands::git_checkout_branch,
+            commands::git_create_branch,
             commands::get_installed_extensions,
             commands::start_extension_sidecar,
             commands::spawn_pty,
