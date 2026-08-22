@@ -73,6 +73,7 @@ struct OxideGuiApp {
     // Settings
     font_size: f32,
     tab_size: usize,
+    terminal_height: f32,
 }
 
 impl OxideGuiApp {
@@ -216,6 +217,7 @@ fn main() {
             new_item_name: String::new(),
             font_size: 14.0,
             tab_size: 4,
+            terminal_height: 200.0,
         }
     }
 
@@ -867,13 +869,19 @@ impl eframe::App for OxideGuiApp {
                 });
         }
 
-        // 6. Central Panel: Split/Editor Area (Top) + Integrated Terminal (Bottom)
+        // 6. Central Panel: Split/Editor Area (Top) + Draggable Resizable Terminal (Bottom)
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
                 let available_height = ui.available_height();
-                let terminal_height = if self.show_terminal { 180.0_f32.min(available_height * 0.4) } else { 0.0 };
-                let editor_height = available_height - terminal_height;
+                let splitter_height = 6.0;
+
+                let actual_term_height = if self.show_terminal {
+                    self.terminal_height.clamp(60.0, available_height - 100.0)
+                } else {
+                    0.0
+                };
+                let editor_height = (available_height - actual_term_height - if self.show_terminal { splitter_height } else { 0.0 }).max(80.0);
 
                 // --- TOP: Editor Area ---
                 ui.allocate_ui_with_layout(
@@ -903,7 +911,7 @@ impl eframe::App for OxideGuiApp {
                             ui.columns(2, |columns| {
                                 columns[0].vertical(|ui| {
                                     ui.heading(RichText::new("Markdown ソース").size(12.0).color(Color32::from_rgb(150, 150, 150)));
-                                    ScrollArea::vertical().show(ui, |ui| {
+                                    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                         let lang = LanguageId::Markdown;
                                         let syntax = &self.syntax_engine;
                                         let font_size = self.font_size;
@@ -918,7 +926,6 @@ impl eframe::App for OxideGuiApp {
                                             egui::TextEdit::multiline(&mut self.buffer_text)
                                                 .font(TextStyle::Monospace)
                                                 .desired_width(f32::INFINITY)
-                                                .desired_rows(25)
                                                 .lock_focus(true)
                                                 .layouter(&mut layouter),
                                         );
@@ -930,7 +937,7 @@ impl eframe::App for OxideGuiApp {
 
                                 columns[1].vertical(|ui| {
                                     ui.heading(RichText::new("ライブ レンダリング プレビュー").size(12.0).color(Color32::from_rgb(0, 200, 255)));
-                                    ScrollArea::vertical().show(ui, |ui| {
+                                    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                         let rendered_html = MarkdownPreview::render_html(&self.buffer_text);
                                         ui.label(RichText::new(rendered_html).monospace().color(Color32::from_rgb(220, 220, 220)));
                                     });
@@ -941,7 +948,7 @@ impl eframe::App for OxideGuiApp {
                             ui.columns(2, |columns| {
                                 columns[0].vertical(|ui| {
                                     ui.label(RichText::new("Editor 1").size(11.0).color(Color32::from_rgb(150, 150, 150)));
-                                    ScrollArea::vertical().show(ui, |ui| {
+                                    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                         let lang = self.current_file_path.as_ref().map_or(LanguageId::Rust, |p| {
                                             LanguageId::from_extension(p.extension().and_then(|e| e.to_str()).unwrap_or(""))
                                         });
@@ -958,7 +965,6 @@ impl eframe::App for OxideGuiApp {
                                             egui::TextEdit::multiline(&mut self.buffer_text)
                                                 .font(TextStyle::Monospace)
                                                 .desired_width(f32::INFINITY)
-                                                .desired_rows(30)
                                                 .lock_focus(true)
                                                 .layouter(&mut layouter),
                                         );
@@ -970,7 +976,7 @@ impl eframe::App for OxideGuiApp {
 
                                 columns[1].vertical(|ui| {
                                     ui.label(RichText::new("Editor 2 (Split)").size(11.0).color(Color32::from_rgb(150, 150, 150)));
-                                    ScrollArea::vertical().show(ui, |ui| {
+                                    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                         let lang = LanguageId::Rust;
                                         let syntax = &self.syntax_engine;
                                         let font_size = self.font_size;
@@ -985,7 +991,6 @@ impl eframe::App for OxideGuiApp {
                                             egui::TextEdit::multiline(&mut self.buffer_text)
                                                 .font(TextStyle::Monospace)
                                                 .desired_width(f32::INFINITY)
-                                                .desired_rows(30)
                                                 .lock_focus(true)
                                                 .layouter(&mut layouter),
                                         );
@@ -995,13 +1000,13 @@ impl eframe::App for OxideGuiApp {
                         } else {
                             // Full Width Code Editor + Minimap
                             ui.horizontal(|ui| {
-                                let editor_width = if self.show_minimap { ui.available_width() - 90.0 } else { ui.available_width() };
+                                let editor_width = if self.show_minimap { (ui.available_width() - 90.0).max(100.0) } else { ui.available_width() };
 
                                 ui.allocate_ui_with_layout(
                                     Vec2::new(editor_width, ui.available_height()),
                                     Layout::top_down(egui::Align::LEFT),
                                     |ui| {
-                                        ScrollArea::vertical().show(ui, |ui| {
+                                        ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                             let lang = self.current_file_path.as_ref().map_or(LanguageId::Rust, |p| {
                                                 LanguageId::from_extension(p.extension().and_then(|e| e.to_str()).unwrap_or(""))
                                             });
@@ -1018,7 +1023,6 @@ impl eframe::App for OxideGuiApp {
                                                 egui::TextEdit::multiline(&mut self.buffer_text)
                                                     .font(TextStyle::Monospace)
                                                     .desired_width(f32::INFINITY)
-                                                    .desired_rows(30)
                                                     .lock_focus(true)
                                                     .layouter(&mut layouter),
                                             );
@@ -1042,7 +1046,7 @@ impl eframe::App for OxideGuiApp {
                                             );
 
                                             ScrollArea::vertical().show(ui, |ui| {
-                                                for line in self.buffer_text.lines().take(60) {
+                                                for line in self.buffer_text.lines().take(80) {
                                                     let preview_line: String = line.chars().take(25).collect();
                                                     ui.label(RichText::new(preview_line).size(4.0).color(Color32::from_rgb(120, 150, 180)));
                                                 }
@@ -1055,11 +1059,29 @@ impl eframe::App for OxideGuiApp {
                     },
                 );
 
-                // --- BOTTOM: Integrated Terminal ---
+                // --- DRAGGABLE RESIZE SPLITTER ---
                 if self.show_terminal {
-                    ui.separator();
+                    let (splitter_rect, splitter_resp) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), splitter_height),
+                        egui::Sense::drag(),
+                    );
+                    let is_hovered = splitter_resp.hovered() || splitter_resp.dragged();
+                    let splitter_color = if is_hovered {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        Color32::from_rgb(0, 122, 204) // VS Code Focus Blue
+                    } else {
+                        Color32::from_rgb(50, 50, 50)
+                    };
+                    ui.painter().rect_filled(splitter_rect, 0.0, splitter_color);
+
+                    if splitter_resp.dragged() {
+                        let delta_y = splitter_resp.drag_delta().y;
+                        self.terminal_height = (self.terminal_height - delta_y).clamp(60.0, available_height - 100.0);
+                    }
+
+                    // --- BOTTOM: Integrated Terminal (Resizable) ---
                     ui.allocate_ui_with_layout(
-                        Vec2::new(ui.available_width(), terminal_height),
+                        Vec2::new(ui.available_width(), actual_term_height),
                         Layout::top_down(egui::Align::LEFT),
                         |ui| {
                             ui.horizontal(|ui| {
@@ -1071,7 +1093,7 @@ impl eframe::App for OxideGuiApp {
                                 });
                             });
 
-                            ScrollArea::vertical().stick_to_bottom(true).max_height(terminal_height - 60.0).show(ui, |ui| {
+                            ScrollArea::vertical().stick_to_bottom(true).max_height((actual_term_height - 50.0).max(20.0)).show(ui, |ui| {
                                 for log in &self.terminal_logs {
                                     ui.label(RichText::new(log).monospace().color(Color32::from_rgb(0, 255, 128)));
                                 }
@@ -1170,7 +1192,8 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("Oxide Editor (VS Code on Rust)")
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([640.0, 480.0]),
+            .with_min_inner_size([640.0, 480.0])
+            .with_resizable(true),
         ..Default::default()
     };
 
