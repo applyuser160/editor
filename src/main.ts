@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import * as monaco from "monaco-editor";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 interface FileEntry {
   name: string;
@@ -10,7 +14,7 @@ interface FileEntry {
 
 interface SearchMatch {
   file_path: string;
-  line_number: usize;
+  line_number: number;
   line_text: string;
 }
 
@@ -18,8 +22,6 @@ interface GitStatusResult {
   branch: string;
   changed_files: string[];
 }
-
-type usize = number;
 
 interface OpenTab {
   path: string;
@@ -34,6 +36,10 @@ let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
 let isSplitActive = false;
 let splitOrientation: "horizontal" | "vertical" = "horizontal";
 
+let ptyId: number | null = null;
+let xtermInstance: Terminal | null = null;
+let fitAddon: FitAddon | null = null;
+
 const openTabs: Map<string, OpenTab> = new Map();
 let activeFilePath: string | null = null;
 let currentActiveView = "explorer";
@@ -46,7 +52,7 @@ window.addEventListener("DOMContentLoaded", () => {
   setupActivityBar();
   setupResizers();
   setupGridSplitters();
-  setupTerminal();
+  setupIntegratedTerminal();
   setupQuickPick();
   setupShortcuts();
   setupFileActions();
@@ -145,7 +151,7 @@ fn main() {
   updateTabBar();
 }
 
-// 2. 2D Grid Splitter Actions (Split Right / Split Down / Close)
+// 2. 2D Grid Splitter Actions
 function setupGridSplitters() {
   const btnSplitRight = document.getElementById("btn-split-right");
   const btnSplitDown = document.getElementById("btn-split-down");
@@ -193,7 +199,76 @@ function setupGridSplitters() {
   }
 }
 
-// 3. Open / Switch Files
+// 3. Integrated Real-time Terminal (xterm.js + Portable-PTY)
+async function setupIntegratedTerminal() {
+  const container = document.getElementById("terminal-container");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  xtermInstance = new Terminal({
+    theme: {
+      background: "#181818",
+      foreground: "#cccccc",
+      cursor: "#007acc",
+      selectionBackground: "#264f78",
+      black: "#000000",
+      red: "#cd3131",
+      green: "#0dbc79",
+      yellow: "#e5e510",
+      blue: "#2472c8",
+      magenta: "#bc3fbc",
+      cyan: "#11a8cd",
+      white: "#e5e5e5",
+    },
+    fontFamily: "Consolas, 'Courier New', monospace",
+    fontSize: 13,
+    lineHeight: 1.2,
+    cursorBlink: true,
+  });
+
+  fitAddon = new FitAddon();
+  xtermInstance.loadAddon(fitAddon);
+  xtermInstance.open(container);
+
+  setTimeout(() => {
+    fitAddon?.fit();
+  }, 100);
+
+  try {
+    const cols = xtermInstance.cols || 80;
+    const rows = xtermInstance.rows || 24;
+
+    ptyId = await invoke<number>("spawn_pty", { cols, rows });
+
+    // Listen for PTY output stream from Rust
+    await listen<string>(`pty-data-${ptyId}`, (event) => {
+      xtermInstance?.write(event.payload);
+    });
+
+    // Send keystrokes directly to Rust PTY
+    xtermInstance.onData((data) => {
+      if (ptyId !== null) {
+        invoke("write_pty", { id: ptyId, data });
+      }
+    });
+
+    // Sync resize
+    xtermInstance.onResize((size) => {
+      if (ptyId !== null) {
+        invoke("resize_pty", { id: ptyId, cols: size.cols, rows: size.rows });
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      fitAddon?.fit();
+    });
+  } catch (err) {
+    xtermInstance.writeln(`\x1b[31mFailed to spawn PTY: ${err}\x1b[0m`);
+  }
+}
+
+// 4. Open / Switch Files
 async function openFile(path: string, name: string) {
   if (!editor1) return;
 
@@ -237,7 +312,7 @@ async function openFile(path: string, name: string) {
   }
 }
 
-// 4. Save Active File (Ctrl+S)
+// 5. Save Active File (Ctrl+S)
 async function saveActiveFile() {
   if (!activeFilePath || !editor1) return;
   const tab = openTabs.get(activeFilePath);
@@ -254,7 +329,7 @@ async function saveActiveFile() {
   }
 }
 
-// 5. Tab Bar Rendering
+// 6. Tab Bar Rendering
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -324,7 +399,7 @@ function getLanguageFromPath(path: string): string {
   }
 }
 
-// 6. Activity Bar & All Sidebar Views (Explorer, Search, SCM, Extensions, Settings)
+// 7. Activity Bar & All Sidebar Views
 function setupActivityBar() {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".activity-btn");
   buttons.forEach((btn) => {
@@ -351,6 +426,9 @@ function toggleSidebar(forceOpen?: boolean) {
 
   isSidebarVisible = forceOpen !== undefined ? forceOpen : !isSidebarVisible;
   sidebar.style.display = isSidebarVisible ? "flex" : "none";
+  editor1?.layout();
+  editor2?.layout();
+  fitAddon?.fit();
 }
 
 async function updateSidebarView(view: string) {
@@ -425,7 +503,7 @@ async function updateSidebarView(view: string) {
   }
 }
 
-// 7. Search Feature Integration
+// 8. Search Feature Integration
 function setupSearchInput() {
   const input = document.getElementById("global-search-input") as HTMLInputElement;
   const list = document.getElementById("search-results-list");
@@ -473,15 +551,10 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 8. SCM (Git) Integration
+// 9. SCM (Git) Integration
 async function renderScmView(container: HTMLElement) {
   try {
     const status = await invoke<GitStatusResult>("git_get_status");
-    const branchStatusEl = document.getElementById("status-branch");
-    if (branchStatusEl) {
-      branchStatusEl.textContent = `🌿 ${status.branch}`;
-    }
-
     container.innerHTML = `
       <div style="padding: 4px;">
         <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
@@ -515,7 +588,7 @@ async function renderScmView(container: HTMLElement) {
           return;
         }
         try {
-          const res = await invoke<string>("git_commit", { message: msg });
+          await invoke<string>("git_commit", { message: msg });
           showStatusMessage("Git コミット完了");
           updateSidebarView("scm");
         } catch (err) {
@@ -528,7 +601,7 @@ async function renderScmView(container: HTMLElement) {
   }
 }
 
-// 9. Settings Handlers
+// 10. Settings Handlers
 function setupSettingsHandlers() {
   const themeSel = document.getElementById("theme-selector") as HTMLSelectElement;
   const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
@@ -550,7 +623,7 @@ function setupSettingsHandlers() {
   }
 }
 
-// 10. Workspace File Tree Loading & Context Actions
+// 11. Workspace File Tree Loading & Actions
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -638,7 +711,7 @@ function setupFileActions() {
   }
 }
 
-// 11. Draggable Splitter Resizers
+// 12. Draggable Splitter Resizers
 function setupResizers() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebar = document.getElementById("sidebar");
@@ -657,6 +730,7 @@ function setupResizers() {
       sidebar.style.width = `${newWidth}px`;
       editor1?.layout();
       editor2?.layout();
+      fitAddon?.fit();
     });
 
     window.addEventListener("mouseup", () => {
@@ -684,6 +758,7 @@ function setupResizers() {
       panelPart.style.height = `${newHeight}px`;
       editor1?.layout();
       editor2?.layout();
+      fitAddon?.fit();
     });
 
     window.addEventListener("mouseup", () => {
@@ -703,53 +778,6 @@ function setupResizers() {
       editor2?.layout();
     });
   }
-}
-
-// 12. Terminal Command Execution
-function setupTerminal() {
-  const input = document.getElementById("term-input") as HTMLInputElement;
-  const output = document.getElementById("terminal-output");
-
-  if (input && output) {
-    input.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        const cmd = input.value.trim();
-        if (!cmd) return;
-
-        appendTermLine(`PS > ${cmd}`);
-        input.value = "";
-
-        if (cmd === "clear" || cmd === "cls") {
-          output.innerHTML = "";
-          return;
-        }
-
-        try {
-          const res = await invoke<string>("execute_terminal_command", { command: cmd });
-          if (res) {
-            res.split("\n").forEach((line) => {
-              if (line.trim()) appendTermLine(line);
-            });
-          }
-        } catch (err) {
-          appendTermLine(`エラー: ${err}`);
-        }
-      }
-    });
-  }
-}
-
-function appendTermLine(text: string) {
-  const output = document.getElementById("terminal-output");
-  if (!output) return;
-
-  const line = document.createElement("div");
-  line.className = "term-line";
-  line.textContent = text;
-  output.appendChild(line);
-
-  const container = document.getElementById("terminal-container");
-  if (container) container.scrollTop = container.scrollHeight;
 }
 
 // 13. QuickPick Modal (Ctrl+P / Ctrl+Shift+P)
@@ -861,6 +889,7 @@ function executeCommand(id: string) {
         panelPart.style.display = isTerminalVisible ? "flex" : "none";
         editor1?.layout();
         editor2?.layout();
+        fitAddon?.fit();
       }
       break;
   }
@@ -889,6 +918,7 @@ function setupShortcuts() {
         panelPart.style.display = isTerminalVisible ? "flex" : "none";
         editor1?.layout();
         editor2?.layout();
+        fitAddon?.fit();
       }
     }
   });

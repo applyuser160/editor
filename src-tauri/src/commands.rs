@@ -1,6 +1,8 @@
+use crate::pty_manager::PtyState;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -28,6 +30,35 @@ pub struct SearchMatch {
 pub struct GitStatusResult {
     pub branch: String,
     pub changed_files: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn spawn_pty(
+    app: AppHandle,
+    state: State<'_, PtyState>,
+    cols: u16,
+    rows: u16,
+) -> Result<u32, String> {
+    state.spawn(app, cols, rows)
+}
+
+#[tauri::command]
+pub async fn write_pty(
+    state: State<'_, PtyState>,
+    id: u32,
+    data: String,
+) -> Result<(), String> {
+    state.write(id, data)
+}
+
+#[tauri::command]
+pub async fn resize_pty(
+    state: State<'_, PtyState>,
+    id: u32,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    state.resize(id, cols, rows)
 }
 
 #[tauri::command]
