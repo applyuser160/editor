@@ -14,6 +14,9 @@ pub fn run() {
             commands::delete_file,
             commands::rename_file,
             commands::get_file_stat,
+            commands::search_in_workspace,
+            commands::git_get_status,
+            commands::git_commit,
             commands::execute_terminal_command
         ])
         .run(tauri::generate_context!())

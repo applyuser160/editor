@@ -8,6 +8,19 @@ interface FileEntry {
   depth: number;
 }
 
+interface SearchMatch {
+  file_path: string;
+  line_number: usize;
+  line_text: string;
+}
+
+interface GitStatusResult {
+  branch: string;
+  changed_files: string[];
+}
+
+type usize = number;
+
 interface OpenTab {
   path: string;
   name: string;
@@ -16,7 +29,11 @@ interface OpenTab {
 }
 
 // Global State
-let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
+let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
+let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
+let isSplitActive = false;
+let splitOrientation: "horizontal" | "vertical" = "horizontal";
+
 const openTabs: Map<string, OpenTab> = new Map();
 let activeFilePath: string | null = null;
 let currentActiveView = "explorer";
@@ -25,9 +42,10 @@ let isTerminalVisible = true;
 
 // Initialize when DOM is ready
 window.addEventListener("DOMContentLoaded", () => {
-  initMonacoEditor();
+  initMonacoEditors();
   setupActivityBar();
   setupResizers();
+  setupGridSplitters();
   setupTerminal();
   setupQuickPick();
   setupShortcuts();
@@ -35,15 +53,12 @@ window.addEventListener("DOMContentLoaded", () => {
   loadWorkspaceFiles();
 });
 
-// 1. Initialize Monaco Editor (VS Code Dark+ Theme)
-function initMonacoEditor() {
-  const container = document.getElementById("editor-container");
-  if (!container) return;
+// 1. Initialize Monaco Editors (Primary & Secondary Split)
+function initMonacoEditors() {
+  const container1 = document.getElementById("editor-container-1");
+  const container2 = document.getElementById("editor-container-2");
+  if (!container1 || !container2) return;
 
-  // Clear placeholder
-  container.innerHTML = "";
-
-  // Define VS Code Dark+ Theme
   monaco.editor.defineTheme("vscode-dark-plus", {
     base: "vs-dark",
     inherit: true,
@@ -79,8 +94,7 @@ fn main() {
 
   const initialModel = monaco.editor.createModel(defaultContent, "rust");
 
-  editorInstance = monaco.editor.create(container, {
-    model: initialModel,
+  const commonOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
     theme: "vscode-dark-plus",
     fontSize: 14,
     fontFamily: "Consolas, 'Courier New', monospace",
@@ -90,25 +104,29 @@ fn main() {
     readOnly: false,
     cursorBlinking: "smooth",
     smoothScrolling: true,
-    minimap: {
-      enabled: true,
-      scale: 1,
-      showSlider: "mouseover",
-    },
+    minimap: { enabled: true, scale: 1, showSlider: "mouseover" },
     automaticLayout: true,
     tabSize: 4,
     insertSpaces: true,
+  };
+
+  editor1 = monaco.editor.create(container1, {
+    ...commonOptions,
+    model: initialModel,
   });
 
-  // Track cursor position
-  editorInstance.onDidChangeCursorPosition((e) => {
+  editor2 = monaco.editor.create(container2, {
+    ...commonOptions,
+    model: initialModel,
+  });
+
+  editor1.onDidChangeCursorPosition((e) => {
     const statusLineCol = document.getElementById("status-line-col");
     if (statusLineCol) {
       statusLineCol.textContent = `行: ${e.position.lineNumber}, 列: ${e.position.column}`;
     }
   });
 
-  // Track content change (dirty flag)
   initialModel.onDidChangeContent(() => {
     if (activeFilePath && openTabs.has(activeFilePath)) {
       const tab = openTabs.get(activeFilePath)!;
@@ -117,7 +135,6 @@ fn main() {
     }
   });
 
-  // Register default tab
   openTabs.set("welcome.rs", {
     path: "welcome.rs",
     name: "welcome.rs",
@@ -128,15 +145,65 @@ fn main() {
   updateTabBar();
 }
 
-// 2. Open / Switch Files in Editor
-async function openFile(path: string, name: string) {
-  if (!editorInstance) return;
+// 2. 2D Grid Splitter Actions (Split Right / Split Down / Close)
+function setupGridSplitters() {
+  const btnSplitRight = document.getElementById("btn-split-right");
+  const btnSplitDown = document.getElementById("btn-split-down");
+  const btnCloseSplit = document.getElementById("btn-close-split");
+  const pane2 = document.getElementById("editor-pane-2");
+  const gridResizer = document.getElementById("grid-resizer");
+  const editorGrid = document.getElementById("editor-grid");
 
-  // Check if already open
+  if (btnSplitRight && pane2 && gridResizer && editorGrid) {
+    btnSplitRight.addEventListener("click", () => {
+      isSplitActive = true;
+      splitOrientation = "horizontal";
+      editorGrid.style.flexDirection = "row";
+      gridResizer.className = "resizer horizontal";
+      pane2.classList.remove("hidden");
+      gridResizer.classList.remove("hidden");
+      editor1?.layout();
+      editor2?.layout();
+      showStatusMessage("エディターを左右に分割しました");
+    });
+  }
+
+  if (btnSplitDown && pane2 && gridResizer && editorGrid) {
+    btnSplitDown.addEventListener("click", () => {
+      isSplitActive = true;
+      splitOrientation = "vertical";
+      editorGrid.style.flexDirection = "column";
+      gridResizer.className = "resizer vertical";
+      pane2.classList.remove("hidden");
+      gridResizer.classList.remove("hidden");
+      editor1?.layout();
+      editor2?.layout();
+      showStatusMessage("エディターを上下に分割しました");
+    });
+  }
+
+  if (btnCloseSplit && pane2 && gridResizer) {
+    btnCloseSplit.addEventListener("click", () => {
+      isSplitActive = false;
+      pane2.classList.add("hidden");
+      gridResizer.classList.add("hidden");
+      editor1?.layout();
+      showStatusMessage("エディター分割を閉じました");
+    });
+  }
+}
+
+// 3. Open / Switch Files
+async function openFile(path: string, name: string) {
+  if (!editor1) return;
+
   if (openTabs.has(path)) {
     activeFilePath = path;
     const tab = openTabs.get(path)!;
-    editorInstance.setModel(tab.model);
+    editor1.setModel(tab.model);
+    if (isSplitActive && editor2) {
+      editor2.setModel(tab.model);
+    }
     updateTabBar();
     updateStatusBar(path);
     return;
@@ -155,27 +222,24 @@ async function openFile(path: string, name: string) {
       }
     });
 
-    openTabs.set(path, {
-      path,
-      name,
-      model,
-      isDirty: false,
-    });
-
+    openTabs.set(path, { path, name, model, isDirty: false });
     activeFilePath = path;
-    editorInstance.setModel(model);
+    editor1.setModel(model);
+    if (isSplitActive && editor2) {
+      editor2.setModel(model);
+    }
+
     updateTabBar();
     updateStatusBar(path);
-
     showStatusMessage(`開きました: ${name}`);
   } catch (err) {
     showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
   }
 }
 
-// 3. Save Active File (Ctrl+S)
+// 4. Save Active File (Ctrl+S)
 async function saveActiveFile() {
-  if (!activeFilePath || !editorInstance) return;
+  if (!activeFilePath || !editor1) return;
   const tab = openTabs.get(activeFilePath);
   if (!tab) return;
 
@@ -190,7 +254,7 @@ async function saveActiveFile() {
   }
 }
 
-// 4. Tab Bar Rendering
+// 5. Tab Bar Rendering
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -234,9 +298,9 @@ function closeTab(path: string) {
       openFile(nextPath, openTabs.get(nextPath)!.name);
     } else {
       activeFilePath = null;
-      if (editorInstance) {
+      if (editor1) {
         const emptyModel = monaco.editor.createModel("", "plaintext");
-        editorInstance.setModel(emptyModel);
+        editor1.setModel(emptyModel);
       }
     }
   }
@@ -246,32 +310,21 @@ function closeTab(path: string) {
 function getLanguageFromPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
   switch (ext) {
-    case "rs":
-      return "rust";
-    case "ts":
-      return "typescript";
-    case "js":
-      return "javascript";
-    case "json":
-      return "json";
-    case "md":
-      return "markdown";
-    case "toml":
-      return "ini";
-    case "html":
-      return "html";
-    case "css":
-      return "css";
-    case "py":
-      return "python";
-    case "sh":
-      return "shell";
-    default:
-      return "plaintext";
+    case "rs": return "rust";
+    case "ts": return "typescript";
+    case "js": return "javascript";
+    case "json": return "json";
+    case "md": return "markdown";
+    case "toml": return "ini";
+    case "html": return "html";
+    case "css": return "css";
+    case "py": return "python";
+    case "sh": return "shell";
+    default: return "plaintext";
   }
 }
 
-// 5. Activity Bar & Sidebar View
+// 6. Activity Bar & All Sidebar Views (Explorer, Search, SCM, Extensions, Settings)
 function setupActivityBar() {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".activity-btn");
   buttons.forEach((btn) => {
@@ -300,7 +353,7 @@ function toggleSidebar(forceOpen?: boolean) {
   sidebar.style.display = isSidebarVisible ? "flex" : "none";
 }
 
-function updateSidebarView(view: string) {
+async function updateSidebarView(view: string) {
   const titleEl = document.getElementById("sidebar-title");
   const contentEl = document.getElementById("sidebar-content");
   if (!titleEl || !contentEl) return;
@@ -310,48 +363,194 @@ function updateSidebarView(view: string) {
       titleEl.textContent = "エクスプローラー";
       loadWorkspaceFiles();
       break;
+
     case "search":
       titleEl.textContent = "検索 (SEARCH)";
       contentEl.innerHTML = `
         <div style="padding: 4px;">
-          <input type="text" id="search-input" placeholder="検索語を入力..." style="width: 100%; padding: 4px 8px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
-          <div style="margin-top: 8px; color: #888; font-size: 11px;">プロジェクト内のファイルを検索します</div>
+          <input type="text" id="global-search-input" placeholder="検索語を入力して Enter..." style="width: 100%; padding: 6px 8px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; font-size: 12px;" />
+          <div id="search-results-list" style="margin-top: 8px; max-height: calc(100vh - 160px); overflow-y: auto;"></div>
         </div>
       `;
+      setupSearchInput();
       break;
+
     case "scm":
       titleEl.textContent = "ソース管理 (GIT)";
-      contentEl.innerHTML = `
-        <div style="padding: 4px;">
-          <div style="font-size: 11px; color: #888; margin-bottom: 4px;">コミットメッセージ:</div>
-          <textarea id="git-commit-msg" rows="2" style="width: 100%; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 4px;"></textarea>
-          <button style="margin-top: 6px; width: 100%; padding: 4px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer;">コミット実行</button>
-        </div>
-      `;
+      renderScmView(contentEl);
       break;
+
     case "extensions":
       titleEl.textContent = "拡張機能 (EXTENSIONS)";
       contentEl.innerHTML = `
-        <div style="padding: 4px;">
-          <div style="font-weight: bold; margin-bottom: 4px;">rust-analyzer</div>
-          <div style="font-size: 11px; color: #888;">Rust code completion and diagnostics</div>
+        <div style="padding: 6px;">
+          <div style="padding: 8px; background: #2a2d2e; border-radius: 4px; margin-bottom: 8px;">
+            <div style="font-weight: bold; color: #fff;">🦀 rust-analyzer (組み込み)</div>
+            <div style="font-size: 11px; color: #888; margin-top: 2px;">Rust code intelligence and syntax highlighting</div>
+            <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Enabled)</div>
+          </div>
+          <div style="padding: 8px; background: #2a2d2e; border-radius: 4px;">
+            <div style="font-weight: bold; color: #fff;">🎨 VS Code Dark+ Theme</div>
+            <div style="font-size: 11px; color: #888; margin-top: 2px;">Default Visual Studio Code dark theme</div>
+            <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Enabled)</div>
+          </div>
         </div>
       `;
       break;
+
     case "settings":
       titleEl.textContent = "設定 (SETTINGS)";
       contentEl.innerHTML = `
-        <div style="padding: 4px;">
-          <div style="margin-bottom: 8px;">エディタフォント: Consolas (14px)</div>
-          <div style="margin-bottom: 8px;">テーマ: VS Code Dark+</div>
-          <div>ミニマップ: 有効</div>
+        <div style="padding: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; margin-bottom: 4px; color: #aaa;">カラーテーマ (Theme):</label>
+            <select id="theme-selector" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;">
+              <option value="vscode-dark-plus">VS Code Dark+</option>
+              <option value="vs">VS Code Light</option>
+              <option value="hc-black">High Contrast</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 4px; color: #aaa;">フォントサイズ (Font Size):</label>
+            <input type="number" id="font-size-input" value="14" min="10" max="28" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 4px; color: #aaa;">タブサイズ (Tab Size):</label>
+            <input type="number" id="tab-size-input" value="4" min="2" max="8" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
+          </div>
         </div>
       `;
+      setupSettingsHandlers();
       break;
   }
 }
 
-// 6. Workspace File Tree Loading & Actions
+// 7. Search Feature Integration
+function setupSearchInput() {
+  const input = document.getElementById("global-search-input") as HTMLInputElement;
+  const list = document.getElementById("search-results-list");
+  if (!input || !list) return;
+
+  input.addEventListener("keydown", async (e) => {
+    if (e.key === "Enter") {
+      const q = input.value.trim();
+      if (!q) return;
+
+      list.innerHTML = `<div style="color: #888; font-size: 11px;">検索中...</div>`;
+      try {
+        const matches = await invoke<SearchMatch[]>("search_in_workspace", { query: q, caseSensitive: false });
+        list.innerHTML = "";
+
+        if (matches.length === 0) {
+          list.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">一致する結果は見つかりませんでした</div>`;
+          return;
+        }
+
+        matches.forEach((m) => {
+          const item = document.createElement("div");
+          item.className = "search-result-item";
+          item.innerHTML = `
+            <div class="search-file-title">📄 ${m.file_path}:${m.line_number}</div>
+            <div class="search-match-line">${escapeHtml(m.line_text)}</div>
+          `;
+          item.onclick = async () => {
+            await openFile(m.file_path, m.file_path.split("/").pop() || m.file_path);
+            if (editor1) {
+              editor1.revealLineInCenter(m.line_number);
+              editor1.setPosition({ lineNumber: m.line_number, column: 1 });
+            }
+          };
+          list.appendChild(item);
+        });
+      } catch (err) {
+        list.innerHTML = `<div style="color: #ff5555; font-size: 11px;">検索エラー: ${err}</div>`;
+      }
+    }
+  });
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// 8. SCM (Git) Integration
+async function renderScmView(container: HTMLElement) {
+  try {
+    const status = await invoke<GitStatusResult>("git_get_status");
+    const branchStatusEl = document.getElementById("status-branch");
+    if (branchStatusEl) {
+      branchStatusEl.textContent = `🌿 ${status.branch}`;
+    }
+
+    container.innerHTML = `
+      <div style="padding: 4px;">
+        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
+        <textarea id="git-commit-msg" rows="2" placeholder="コミットメッセージを入力..." style="width: 100%; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 4px; font-size: 12px;"></textarea>
+        <button id="btn-commit" style="margin-top: 6px; width: 100%; padding: 6px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;">✔ コミット実行 (Commit)</button>
+        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #aaa;">変更されたファイル (${status.changed_files.length}):</div>
+        <div id="scm-files-list" style="margin-top: 6px;"></div>
+      </div>
+    `;
+
+    const list = document.getElementById("scm-files-list");
+    if (list) {
+      status.changed_files.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "scm-file-row";
+        row.innerHTML = `
+          <span>📄 ${f.trim()}</span>
+          <span class="scm-status-tag modified">MODIFIED</span>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    const btnCommit = document.getElementById("btn-commit");
+    const commitInput = document.getElementById("git-commit-msg") as HTMLTextAreaElement;
+    if (btnCommit && commitInput) {
+      btnCommit.onclick = async () => {
+        const msg = commitInput.value.trim();
+        if (!msg) {
+          alert("コミットメッセージを入力してください");
+          return;
+        }
+        try {
+          const res = await invoke<string>("git_commit", { message: msg });
+          showStatusMessage("Git コミット完了");
+          updateSidebarView("scm");
+        } catch (err) {
+          alert(`コミット失敗: ${err}`);
+        }
+      };
+    }
+  } catch (err) {
+    container.innerHTML = `<div style="color: #888; padding: 8px;">Git 状態取得エラー: ${err}</div>`;
+  }
+}
+
+// 9. Settings Handlers
+function setupSettingsHandlers() {
+  const themeSel = document.getElementById("theme-selector") as HTMLSelectElement;
+  const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
+
+  if (themeSel) {
+    themeSel.onchange = () => {
+      monaco.editor.setTheme(themeSel.value);
+    };
+  }
+
+  if (fontSizeInput) {
+    fontSizeInput.onchange = () => {
+      const sz = parseInt(fontSizeInput.value, 10);
+      if (sz >= 10 && sz <= 28) {
+        editor1?.updateOptions({ fontSize: sz });
+        editor2?.updateOptions({ fontSize: sz });
+      }
+    };
+  }
+}
+
+// 10. Workspace File Tree Loading & Context Actions
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -366,7 +565,30 @@ async function loadWorkspaceFiles() {
       node.style.paddingLeft = `${file.depth * 12 + 8}px`;
 
       const icon = file.is_dir ? "📁" : "📄";
-      node.innerHTML = `<span>${icon}</span><span>${file.name}</span>`;
+      node.innerHTML = `
+        <div class="tree-node-left">
+          <span>${icon}</span>
+          <span>${file.name}</span>
+        </div>
+        <div class="tree-node-actions">
+          <button class="node-btn btn-del" title="削除">🗑</button>
+        </div>
+      `;
+
+      const delBtn = node.querySelector(".btn-del");
+      if (delBtn) {
+        delBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (confirm(`'${file.name}' を削除してよろしいですか？`)) {
+            try {
+              await invoke("delete_file", { path: file.path });
+              loadWorkspaceFiles();
+            } catch (err) {
+              alert(`削除エラー: ${err}`);
+            }
+          }
+        });
+      }
 
       if (!file.is_dir) {
         node.addEventListener("click", () => openFile(file.path, file.name));
@@ -416,7 +638,7 @@ function setupFileActions() {
   }
 }
 
-// 7. Draggable Resizers
+// 11. Draggable Splitter Resizers
 function setupResizers() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebar = document.getElementById("sidebar");
@@ -433,6 +655,8 @@ function setupResizers() {
       if (!isDragging) return;
       const newWidth = Math.max(160, Math.min(e.clientX - 48, 600));
       sidebar.style.width = `${newWidth}px`;
+      editor1?.layout();
+      editor2?.layout();
     });
 
     window.addEventListener("mouseup", () => {
@@ -458,6 +682,8 @@ function setupResizers() {
       if (!isDragging) return;
       const newHeight = Math.max(80, Math.min(window.innerHeight - e.clientY - 22, window.innerHeight * 0.6));
       panelPart.style.height = `${newHeight}px`;
+      editor1?.layout();
+      editor2?.layout();
     });
 
     window.addEventListener("mouseup", () => {
@@ -473,11 +699,13 @@ function setupResizers() {
     btnClosePanel.addEventListener("click", () => {
       isTerminalVisible = false;
       panelPart.style.display = "none";
+      editor1?.layout();
+      editor2?.layout();
     });
   }
 }
 
-// 8. Terminal Command Execution
+// 12. Terminal Command Execution
 function setupTerminal() {
   const input = document.getElementById("term-input") as HTMLInputElement;
   const output = document.getElementById("terminal-output");
@@ -524,7 +752,7 @@ function appendTermLine(text: string) {
   if (container) container.scrollTop = container.scrollHeight;
 }
 
-// 9. QuickPick Modal (Ctrl+P / Ctrl+Shift+P)
+// 13. QuickPick Modal (Ctrl+P / Ctrl+Shift+P)
 function setupQuickPick() {
   const modal = document.getElementById("quickpick-modal");
   const input = document.getElementById("quickpick-input") as HTMLInputElement;
@@ -565,11 +793,12 @@ async function renderQuickPickItems(query: string) {
   list.innerHTML = "";
 
   const commands = [
+    { title: "View: Split Editor Right (エディターを右に分割)", shortcut: "", id: "split_right" },
+    { title: "View: Split Editor Down (エディターを下に分割)", shortcut: "", id: "split_down" },
     { title: "File: Save (ファイルの保存)", shortcut: "Ctrl+S", id: "save" },
     { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
-    { title: "Git: Refresh (状態更新)", shortcut: "", id: "git_refresh" },
   ];
 
   if (query.startsWith(">")) {
@@ -587,7 +816,6 @@ async function renderQuickPickItems(query: string) {
         list.appendChild(item);
       });
   } else {
-    // File search mode
     try {
       const files = await invoke<FileEntry[]>("list_workspace_files");
       const q = query.trim().toLowerCase();
@@ -612,6 +840,12 @@ async function renderQuickPickItems(query: string) {
 function executeCommand(id: string) {
   const panelPart = document.getElementById("panel-part");
   switch (id) {
+    case "split_right":
+      document.getElementById("btn-split-right")?.click();
+      break;
+    case "split_down":
+      document.getElementById("btn-split-down")?.click();
+      break;
     case "save":
       saveActiveFile();
       break;
@@ -625,12 +859,14 @@ function executeCommand(id: string) {
       if (panelPart) {
         isTerminalVisible = !isTerminalVisible;
         panelPart.style.display = isTerminalVisible ? "flex" : "none";
+        editor1?.layout();
+        editor2?.layout();
       }
       break;
   }
 }
 
-// 10. Global Shortcuts & Status Bar
+// 14. Global Shortcuts & Status Bar
 function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "s") {
@@ -651,6 +887,8 @@ function setupShortcuts() {
       if (panelPart) {
         isTerminalVisible = !isTerminalVisible;
         panelPart.style.display = isTerminalVisible ? "flex" : "none";
+        editor1?.layout();
+        editor2?.layout();
       }
     }
   });

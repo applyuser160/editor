@@ -17,6 +17,19 @@ pub struct FileStat {
     pub extension: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub file_path: String,
+    pub line_number: usize,
+    pub line_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitStatusResult {
+    pub branch: String,
+    pub changed_files: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn list_workspace_files() -> Result<Vec<FileEntry>, String> {
     let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -133,6 +146,116 @@ pub async fn get_file_stat(path: String) -> Result<FileStat, String> {
         is_dir: metadata.is_dir(),
         extension,
     })
+}
+
+#[tauri::command]
+pub async fn search_in_workspace(query: String, case_sensitive: bool) -> Result<Vec<SearchMatch>, String> {
+    let q = if case_sensitive { query } else { query.to_lowercase() };
+    if q.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let mut matches = Vec::new();
+    search_recursive(&current_dir, &current_dir, &q, case_sensitive, &mut matches, 5)?;
+    Ok(matches)
+}
+
+fn search_recursive(
+    root: &Path,
+    current: &Path,
+    query: &str,
+    case_sensitive: bool,
+    matches: &mut Vec<SearchMatch>,
+    max_depth: usize,
+) -> Result<(), String> {
+    if max_depth == 0 {
+        return Ok(());
+    }
+
+    let read_dir = std::fs::read_dir(current).map_err(|e| e.to_string())?;
+    for entry in read_dir.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" {
+            continue;
+        }
+
+        if path.is_dir() {
+            search_recursive(root, &path, query, case_sensitive, matches, max_depth - 1)?;
+        } else if let Ok(content) = std::fs::read_to_string(&path) {
+            let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
+            for (idx, line) in content.lines().enumerate() {
+                let target = if case_sensitive { line.to_string() } else { line.to_lowercase() };
+                if target.contains(query) {
+                    matches.push(SearchMatch {
+                        file_path: relative_path.clone(),
+                        line_number: idx + 1,
+                        line_text: line.trim().to_string(),
+                    });
+                    if matches.len() >= 100 {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_get_status() -> Result<GitStatusResult, String> {
+    let branch_out = Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "main".to_string());
+
+    let status_out = Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let changed_files = status_out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+
+    Ok(GitStatusResult {
+        branch: if branch_out.is_empty() { "main".to_string() } else { branch_out },
+        changed_files,
+    })
+}
+
+#[tauri::command]
+pub async fn git_commit(message: String) -> Result<String, String> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return Err("Commit message cannot be empty".to_string());
+    }
+
+    let add_res = Command::new("git").args(["add", "."]).output();
+    if let Err(e) = add_res {
+        return Err(format!("git add failed: {}", e));
+    }
+
+    let commit_res = Command::new("git")
+        .args(["commit", "-m", trimmed])
+        .output()
+        .map_err(|e| format!("git commit failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&commit_res.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&commit_res.stderr).to_string();
+
+    if commit_res.status.success() {
+        Ok(stdout)
+    } else {
+        Err(format!("{}\n{}", stdout, stderr))
+    }
 }
 
 fn get_absolute_path(path_str: &str) -> Result<PathBuf, String> {

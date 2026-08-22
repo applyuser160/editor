@@ -165,7 +165,7 @@ body {
 
 /* Side Bar */
 #sidebar {
-  width: 240px;
+  width: 260px;
   background-color: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
@@ -216,6 +216,7 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
@@ -226,6 +227,36 @@ body {
 .tree-node.active {
   background-color: var(--bg-active);
   color: var(--text-bright);
+}
+
+.tree-node-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node-actions {
+  display: none;
+  gap: 4px;
+}
+
+.tree-node:hover .tree-node-actions {
+  display: flex;
+}
+
+.node-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.node-btn:hover {
+  color: #ff5555;
 }
 
 /* Resizers */
@@ -257,7 +288,7 @@ body {
   overflow: hidden;
 }
 
-/* Editor Part */
+/* Editor Part (Grid Support) */
 #editor-part {
   flex: 1;
   display: flex;
@@ -266,12 +297,20 @@ body {
   overflow: hidden;
 }
 
-#tab-bar {
+.editor-header-row {
   height: 35px;
   background-color: var(--bg-sidebar);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+#tab-bar {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
   overflow-x: auto;
 }
 
@@ -284,6 +323,7 @@ body {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .tab.active {
@@ -304,22 +344,48 @@ body {
   color: var(--text-bright);
 }
 
-#editor-container {
-  flex: 1;
-  padding: 16px;
-  overflow: auto;
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
 }
 
-#monaco-placeholder pre {
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #9cdcfe;
+.editor-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.editor-action-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+/* Grid Layout */
+#editor-grid {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.editor-pane {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-pane.hidden {
+  display: none;
 }
 
 /* Bottom Panel Part */
 #panel-part {
-  height: 200px;
+  height: 220px;
   background-color: var(--bg-dark);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
@@ -484,4 +550,61 @@ body {
 .quickpick-item:hover, .quickpick-item.selected {
   background-color: var(--accent-color);
   color: var(--text-bright);
+}
+
+/* Search results */
+.search-result-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.search-result-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.search-file-title {
+  font-weight: 600;
+  color: #9cdcfe;
+  font-size: 12px;
+}
+
+.search-match-line {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Git SCM */
+.scm-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scm-file-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.scm-status-tag {
+  font-weight: bold;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.scm-status-tag.modified {
+  background-color: #cca700;
+  color: #000;
+}
+
+.scm-status-tag.added {
+  background-color: #89d185;
+  color: #000;
 }

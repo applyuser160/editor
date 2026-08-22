@@ -64,23 +64,25 @@
 
     <!-- Main Editor & Terminal Area -->
     <main id="main-area">
-      <!-- Editor Part -->
+      <!-- Editor Part with 2D Grid Split Support -->
       <section id="editor-part">
-        <div id="tab-bar">
-          <div class="tab active" data-path="sample.rs">
-            <span class="tab-title">welcome.rs</span>
-            <span class="tab-close">×</span>
+        <div class="editor-header-row">
+          <div id="tab-bar">
+            <!-- Tabs dynamically injected here -->
+          </div>
+          <div class="editor-actions">
+            <button class="editor-action-btn" id="btn-split-right" title="エディターを右に分割 (Split Right)">◫</button>
+            <button class="editor-action-btn" id="btn-split-down" title="エディターを下に分割 (Split Down)">⬒</button>
+            <button class="editor-action-btn" id="btn-close-split" title="分割を閉じる (Close Split)">✕</button>
           </div>
         </div>
-        <div id="editor-container">
-          <div id="monaco-placeholder">
-            <pre id="code-view"><code>// 🦀 Welcome to Oxide Editor (VS Code on Tauri v2)!
-// Ultra-fast, Memory-Efficient, Native Desktop IDE.
-
-fn main() {
-    let message = "Hello from VS Code on Tauri v2 (Oxide)!";
-    println!("{}", message);
-}</code></pre>
+        <div id="editor-grid">
+          <div class="editor-pane" id="editor-pane-1">
+            <div id="editor-container-1" style="width: 100%; height: 100%;"></div>
+          </div>
+          <div class="resizer horizontal hidden" id="grid-resizer"></div>
+          <div class="editor-pane hidden" id="editor-pane-2">
+            <div id="editor-container-2" style="width: 100%; height: 100%;"></div>
           </div>
         </div>
       </section>
