@@ -1228,6 +1228,7 @@ async function openFile(path: string, name: string) {
     }
     updateTabBar();
     updateStatusBar(path);
+    loadWorkspaceFiles();
     return;
   }
 
@@ -1278,6 +1279,7 @@ async function openFile(path: string, name: string) {
 
     updateTabBar();
     updateStatusBar(path);
+    loadWorkspaceFiles();
     showStatusMessage(`開きました: ${name}`);
   } catch (err) {
     showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
@@ -1312,6 +1314,60 @@ async function saveActiveFile() {
   }
 }
 
+function getFileIcon(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  switch (ext) {
+    case "rs": return "🦀";
+    case "ts": return "📘";
+    case "js": return "🟨";
+    case "json": return "⚙";
+    case "toml": return "📦";
+    case "md": return "📝";
+    case "html": return "🌐";
+    case "css": return "🎨";
+    case "py": return "🐍";
+    case "go": return "🔷";
+    case "lock": return "🔒";
+    default: return "📄";
+  }
+}
+
+function updateBreadcrumbs(filePath: string | null) {
+  const breadcrumbEl = document.getElementById("breadcrumb-bar");
+  if (!breadcrumbEl) return;
+
+  if (!filePath) {
+    breadcrumbEl.innerHTML = `<span class="breadcrumb-item">ファイルが開かれていません</span>`;
+    document.title = "Oxide Editor";
+    return;
+  }
+
+  const normalized = filePath.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  
+  breadcrumbEl.innerHTML = "";
+  
+  parts.forEach((part, index) => {
+    const isLast = index === parts.length - 1;
+    const itemEl = document.createElement("span");
+    itemEl.className = `breadcrumb-item ${isLast ? "active-file" : "folder"}`;
+    
+    const icon = isLast ? getFileIcon(part) : "📁";
+    itemEl.innerHTML = `<span class="breadcrumb-icon">${icon}</span> <span>${part}</span>`;
+    breadcrumbEl.appendChild(itemEl);
+
+    if (!isLast) {
+      const sep = document.createElement("span");
+      sep.className = "breadcrumb-separator";
+      sep.textContent = "›";
+      breadcrumbEl.appendChild(sep);
+    }
+  });
+
+  const fileName = parts[parts.length - 1] || "Oxide Editor";
+  document.title = `${fileName} - Oxide Editor`;
+}
+
 // 11. Tab Bar Rendering
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
@@ -1321,7 +1377,13 @@ function updateTabBar() {
 
   openTabs.forEach((tab, path) => {
     const tabEl = document.createElement("div");
-    tabEl.className = `tab ${path === activeFilePath ? "active" : ""}`;
+    const isActive = path === activeFilePath;
+    tabEl.className = `tab ${isActive ? "active" : ""}`;
+
+    const iconEl = document.createElement("span");
+    iconEl.className = "tab-icon";
+    iconEl.textContent = getFileIcon(tab.name);
+    tabEl.appendChild(iconEl);
 
     const titleEl = document.createElement("span");
     titleEl.className = "tab-title";
@@ -1331,6 +1393,7 @@ function updateTabBar() {
     const closeBtn = document.createElement("span");
     closeBtn.className = "tab-close";
     closeBtn.textContent = "×";
+    closeBtn.title = "閉じる";
     closeBtn.onclick = (e) => {
       e.stopPropagation();
       closeTab(path);
@@ -1340,6 +1403,8 @@ function updateTabBar() {
     tabEl.onclick = () => openFile(tab.path, tab.name);
     tabBar.appendChild(tabEl);
   });
+
+  updateBreadcrumbs(activeFilePath);
 }
 
 function closeTab(path: string) {
@@ -1715,6 +1780,8 @@ function setupSettingsHandlers() {
 }
 
 // 17. Workspace File Tree Loading & Actions
+const collapsedFolders: Set<string> = new Set();
+
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -1724,15 +1791,41 @@ async function loadWorkspaceFiles() {
     contentEl.innerHTML = "";
 
     files.forEach((file) => {
-      const node = document.createElement("div");
-      node.className = "tree-node";
-      node.style.paddingLeft = `${file.depth * 12 + 8}px`;
+      const normPath = file.path.replace(/\\/g, "/");
+      const parts = normPath.split("/");
+      let isHidden = false;
+      let checkPath = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        checkPath = checkPath ? `${checkPath}/${parts[i]}` : parts[i];
+        if (collapsedFolders.has(checkPath)) {
+          isHidden = true;
+          break;
+        }
+      }
 
-      const icon = file.is_dir ? "📁" : "📄";
+      if (isHidden) return;
+
+      const node = document.createElement("div");
+      const isCurrentFile = activeFilePath && (
+        file.path === activeFilePath ||
+        normPath === activeFilePath ||
+        activeFilePath.endsWith("/" + normPath) ||
+        activeFilePath.endsWith("\\" + file.path)
+      );
+      node.className = `tree-node ${file.is_dir ? "tree-folder" : "tree-file"} ${isCurrentFile ? "active" : ""}`;
+      node.style.paddingLeft = `${file.depth * 14 + 6}px`;
+
+      const isCollapsed = collapsedFolders.has(file.path) || collapsedFolders.has(normPath);
+      const arrowIcon = file.is_dir ? (isCollapsed ? "▶" : "▼") : "";
+      const typeIcon = file.is_dir 
+        ? (isCollapsed ? "📁" : "📂")
+        : getFileIcon(file.name);
+
       node.innerHTML = `
         <div class="tree-node-left">
-          <span>${icon}</span>
-          <span>${file.name}</span>
+          ${file.is_dir ? `<span class="tree-arrow">${arrowIcon}</span>` : `<span class="tree-arrow-placeholder"></span>`}
+          <span class="tree-icon">${typeIcon}</span>
+          <span class="tree-label">${file.name}</span>
         </div>
         <div class="tree-node-actions">
           <button class="node-btn btn-del" title="削除">🗑</button>
@@ -1754,7 +1847,18 @@ async function loadWorkspaceFiles() {
         });
       }
 
-      if (!file.is_dir) {
+      if (file.is_dir) {
+        node.addEventListener("click", () => {
+          if (collapsedFolders.has(file.path) || collapsedFolders.has(normPath)) {
+            collapsedFolders.delete(file.path);
+            collapsedFolders.delete(normPath);
+          } else {
+            collapsedFolders.add(file.path);
+            collapsedFolders.add(normPath);
+          }
+          loadWorkspaceFiles();
+        });
+      } else {
         node.addEventListener("click", () => openFile(file.path, file.name));
       }
 
