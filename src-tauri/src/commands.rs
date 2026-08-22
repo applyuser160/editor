@@ -299,7 +299,15 @@ fn scan_dir_recursive(
 #[tauri::command]
 pub async fn read_file_content(path: String) -> Result<String, String> {
     let full_path = get_absolute_path(&path)?;
-    std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read {}: {}", path, e))
+    let bytes = std::fs::read(&full_path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    
+    // バイナリファイル判定（先頭8KB内にNULLバイトがあるか、またはUTF-8として不正な場合）
+    let sample = &bytes[..std::cmp::min(bytes.len(), 8192)];
+    if sample.contains(&0) {
+        return Err(format!("BINARY_FILE: '{}' はバイナリファイルのためテキストエディタで開けません", path));
+    }
+
+    String::from_utf8(bytes).map_err(|_| format!("BINARY_FILE: '{}' はテキストとしてデコードできません（非UTF-8またはバイナリ）", path))
 }
 
 #[tauri::command]
@@ -473,6 +481,12 @@ pub async fn git_commit(message: String) -> Result<String, String> {
     } else {
         Err(format!("{}\n{}", stdout, stderr))
     }
+}
+
+#[tauri::command]
+pub async fn get_workspace_path() -> Result<String, String> {
+    let cur = std::env::current_dir().map_err(|e| e.to_string())?;
+    Ok(cur.to_string_lossy().replace('\\', "/"))
 }
 
 fn get_absolute_path(path_str: &str) -> Result<PathBuf, String> {
@@ -651,5 +665,23 @@ mod tests {
         assert!(res.is_some(), "Expected to find definition for Vec in stdlib");
         let match_res = res.unwrap();
         println!("✔ Found Vec definition at: {}:{}", match_res.file_path, match_res.line_number);
+    }
+
+    #[tokio::test]
+    async fn test_read_file_content_binary_detection() {
+        // テキストファイルの読み込みテスト
+        let text_res = read_file_content("Cargo.toml".to_string()).await;
+        assert!(text_res.is_ok(), "Text file should read successfully");
+
+        // 一時バイナリファイルを作成してテスト
+        let temp_bin_path = std::env::temp_dir().join("oxide_test_binary.bin");
+        std::fs::write(&temp_bin_path, [0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00, 0x00]).unwrap();
+        let bin_res = read_file_content(temp_bin_path.to_string_lossy().to_string()).await;
+        let _ = std::fs::remove_file(&temp_bin_path);
+
+        assert!(bin_res.is_err(), "Binary file should return an error");
+        let err_msg = bin_res.err().unwrap();
+        assert!(err_msg.contains("BINARY_FILE"), "Error message should contain BINARY_FILE: {}", err_msg);
+        println!("✔ Successfully detected binary file: {}", err_msg);
     }
 }

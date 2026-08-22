@@ -133,6 +133,22 @@
     </div>
   </div>
 
+  <!-- 5. Confirmation Modal (Save Changes on Close) -->
+  <div id="confirm-modal" class="modal-overlay hidden">
+    <div class="confirm-modal-box">
+      <div class="confirm-modal-header">
+        <span class="confirm-modal-icon">⚠️</span>
+        <span id="confirm-modal-title" class="confirm-modal-title">変更を保存しますか？</span>
+      </div>
+      <div id="confirm-modal-message" class="confirm-modal-message">ファイルへの変更は保存しなければ失われます。</div>
+      <div class="confirm-modal-actions">
+        <button id="confirm-btn-save" class="btn btn-primary">保存 (Save)</button>
+        <button id="confirm-btn-dontsave" class="btn btn-secondary">保存しない (Don't Save)</button>
+        <button id="confirm-btn-cancel" class="btn btn-tertiary">キャンセル (Cancel)</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

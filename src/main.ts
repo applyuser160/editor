@@ -46,6 +46,7 @@ interface OpenTab {
   name: string;
   model: monaco.editor.ITextModel;
   isDirty: boolean;
+  version: number;
 }
 
 interface MenuItemDef {
@@ -58,6 +59,7 @@ interface MenuItemDef {
 }
 
 // Global State
+let workspaceRoot = "";
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
 let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
 let isSplitActive = false;
@@ -82,8 +84,47 @@ let isTerminalVisible = true;
 
 const activeLspServers = new Set<string>();
 
+// Path & URI Utilities
+function normalizePath(rawPath: string): string {
+  let p = rawPath.replace(/\\/g, "/");
+  // If relative path and workspaceRoot is known, prepend workspaceRoot
+  if (!p.match(/^[a-zA-Z]:\//) && !p.startsWith("/")) {
+    if (workspaceRoot) {
+      p = `${workspaceRoot.replace(/\\/g, "/")}/${p}`;
+    }
+  }
+  // Remove duplicate slashes
+  p = p.replace(/\/+/g, "/");
+  return p;
+}
+
+function pathToUri(filePath: string): string {
+  const normalized = normalizePath(filePath);
+  if (normalized.startsWith("/")) {
+    return `file://${normalized}`;
+  }
+  // Windows path like D:/... -> file:///D:/...
+  return `file:///${normalized}`;
+}
+
+function uriToPath(uriStr: string): string {
+  let path = uriStr;
+  if (path.startsWith("file:///")) {
+    path = path.substring(8);
+  } else if (path.startsWith("file://")) {
+    path = path.substring(7);
+  }
+  return normalizePath(path);
+}
+
 // Initialize when DOM is ready
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
+  try {
+    workspaceRoot = await invoke<string>("get_workspace_path");
+  } catch (e) {
+    console.warn("Failed to get workspace path:", e);
+  }
+
   initLanguageServerIntegration();
   initMonacoEditors();
   setupVSCodeMenus();
@@ -136,7 +177,7 @@ async function initLanguageServerIntegration() {
     // Hover Provider
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position) => {
-        const uri = `file:///${model.uri.path}`;
+        const uri = pathToUri(activeFilePath || model.uri.path);
         try {
           const res: any = await invoke("lsp_send_request", {
             lang,
@@ -169,7 +210,7 @@ async function initLanguageServerIntegration() {
     // Completion Provider
     monaco.languages.registerCompletionItemProvider(lang, {
       provideCompletionItems: async (model, position) => {
-        const uri = `file:///${model.uri.path}`;
+        const uri = pathToUri(activeFilePath || model.uri.path);
         try {
           const res: any = await invoke("lsp_send_request", {
             lang,
@@ -229,8 +270,7 @@ async function initLanguageServerIntegration() {
         }
 
         // 2. Try LSP server if connected
-        const targetUriPath = activeFilePath || model.uri.path;
-        const uri = `file:///${targetUriPath.replace(/\\/g, "/")}`;
+        const uri = pathToUri(activeFilePath || model.uri.path);
         try {
           const res: any = await invoke("lsp_send_request", {
             lang,
@@ -288,7 +328,7 @@ async function initLanguageServerIntegration() {
 
           if (defMatch) {
             await openFile(defMatch.file_path, defMatch.file_path.split("/").pop() || defMatch.file_path);
-            const targetTab = openTabs.get(defMatch.file_path);
+            const targetTab = openTabs.get(normalizePath(defMatch.file_path));
             if (targetTab) {
               return {
                 uri: targetTab.model.uri,
@@ -307,7 +347,7 @@ async function initLanguageServerIntegration() {
     // Document Formatting Provider (Shift+Alt+F)
     monaco.languages.registerDocumentFormattingEditProvider(lang, {
       provideDocumentFormattingEdits: async (model) => {
-        const uri = `file:///${model.uri.path}`;
+        const uri = pathToUri(activeFilePath || model.uri.path);
         try {
           const res: any = await invoke("lsp_send_request", {
             lang,
@@ -514,13 +554,15 @@ fn main() {
   editor1.onMouseDown(() => closeGlobalMenu());
   editor2.onMouseDown(() => closeGlobalMenu());
 
-  openTabs.set("welcome.rs", {
-    path: "welcome.rs",
+  const welcomePath = normalizePath("welcome.rs");
+  openTabs.set(welcomePath, {
+    path: welcomePath,
     name: "welcome.rs",
     model: initialModel,
     isDirty: false,
+    version: 1,
   });
-  activeFilePath = "welcome.rs";
+  activeFilePath = welcomePath;
   updateTabBar();
 }
 
@@ -563,8 +605,7 @@ async function performGoToDefinition() {
   // 2. Try LSP server if connected (supports external libraries & standard library)
   const lang = model.getLanguageId();
   try {
-    const targetUriPath = activeFilePath || model.uri.path;
-    const uri = `file:///${targetUriPath.replace(/\\/g, "/")}`;
+    const uri = pathToUri(activeFilePath || model.uri.path);
     const res: any = await invoke("lsp_send_request", {
       lang,
       method: "textDocument/definition",
@@ -670,7 +711,7 @@ function setupVSCodeMenus() {
       { type: "separator" },
       { label: "保存", shortcut: "Ctrl+S", action: () => saveActiveFile() },
       { label: "名前を付けて保存...", shortcut: "Ctrl+Shift+S", action: () => saveActiveFile() },
-      { label: "すべて保存", shortcut: "Ctrl+K S", action: () => saveActiveFile() },
+      { label: "すべて保存", shortcut: "Ctrl+K S", action: () => saveAllFiles() },
       { type: "separator" },
       {
         label: "共有",
@@ -1188,8 +1229,11 @@ async function initExtensionHost() {
 }
 
 // 9. Open / Switch Files
-async function openFile(path: string, name: string) {
+async function openFile(rawPath: string, name?: string) {
   if (!editor1) return;
+
+  const path = normalizePath(rawPath);
+  const fileName = name || path.split("/").pop() || path;
 
   if (openTabs.has(path)) {
     activeFilePath = path;
@@ -1207,27 +1251,43 @@ async function openFile(path: string, name: string) {
   try {
     const content = await invoke<string>("read_file_content", { path });
     const language = getLanguageFromPath(path);
-    const model = monaco.editor.createModel(content, language);
+    const modelUri = monaco.Uri.parse(pathToUri(path));
+
+    let model = monaco.editor.getModel(modelUri);
+    if (!model) {
+      model = monaco.editor.createModel(content, language, modelUri);
+    } else {
+      model.setValue(content);
+    }
+
+    const tabData: OpenTab = {
+      path,
+      name: fileName,
+      model,
+      isDirty: false,
+      version: 1,
+    };
 
     model.onDidChangeContent(() => {
       if (openTabs.has(path)) {
         const tab = openTabs.get(path)!;
         tab.isDirty = true;
+        tab.version++;
         updateTabBar();
 
-        // Notify LSP of change
+        // Notify LSP of change with incrementing version
         invoke("lsp_send_notification", {
           lang: language,
           method: "textDocument/didChange",
           params: {
-            textDocument: { uri: `file:///${path}`, version: 1 },
+            textDocument: { uri: pathToUri(path), version: tab.version },
             contentChanges: [{ text: model.getValue() }],
           },
         }).catch(() => {});
       }
     });
 
-    openTabs.set(path, { path, name, model, isDirty: false });
+    openTabs.set(path, tabData);
     activeFilePath = path;
     editor1.setModel(model);
     if (isSplitActive && editor2) {
@@ -1241,7 +1301,7 @@ async function openFile(path: string, name: string) {
       method: "textDocument/didOpen",
       params: {
         textDocument: {
-          uri: `file:///${path}`,
+          uri: pathToUri(path),
           languageId: language,
           version: 1,
           text: content,
@@ -1252,9 +1312,14 @@ async function openFile(path: string, name: string) {
     updateTabBar();
     updateStatusBar(path);
     loadWorkspaceFiles();
-    showStatusMessage(`開きました: ${name}`);
-  } catch (err) {
-    showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
+    showStatusMessage(`開きました: ${fileName}`);
+  } catch (err: any) {
+    const errMsg = String(err);
+    if (errMsg.includes("BINARY_FILE")) {
+      showStatusMessage(`⚠️ バイナリファイルのため開けません: ${fileName}`);
+    } else {
+      showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
+    }
   }
 }
 
@@ -1264,6 +1329,23 @@ async function saveActiveFile() {
   const tab = openTabs.get(activeFilePath);
   if (!tab) return;
 
+  await saveFileTab(tab);
+}
+
+async function saveAllFiles() {
+  const dirtyTabs = Array.from(openTabs.values()).filter((t) => t.isDirty);
+  if (dirtyTabs.length === 0) {
+    showStatusMessage("保存する変更はありません");
+    return;
+  }
+
+  for (const tab of dirtyTabs) {
+    await saveFileTab(tab);
+  }
+  showStatusMessage(`すべてのファイルを保存しました (${dirtyTabs.length}件)`);
+}
+
+async function saveFileTab(tab: OpenTab) {
   const content = tab.model.getValue();
   const language = getLanguageFromPath(tab.path);
   try {
@@ -1277,13 +1359,62 @@ async function saveActiveFile() {
       lang: language,
       method: "textDocument/didSave",
       params: {
-        textDocument: { uri: `file:///${tab.path}` },
+        textDocument: { uri: pathToUri(tab.path) },
         text: content,
       },
     }).catch(() => {});
   } catch (err) {
     showStatusMessage(`保存失敗: ${err}`);
   }
+}
+
+function promptSaveIfDirty(tab: OpenTab): Promise<"save" | "dontsave" | "cancel"> {
+  return new Promise((resolve) => {
+    if (!tab.isDirty) {
+      resolve("dontsave");
+      return;
+    }
+
+    const modal = document.getElementById("confirm-modal");
+    const titleEl = document.getElementById("confirm-modal-title");
+    const msgEl = document.getElementById("confirm-modal-message");
+    const btnSave = document.getElementById("confirm-btn-save");
+    const btnDontSave = document.getElementById("confirm-btn-dontsave");
+    const btnCancel = document.getElementById("confirm-btn-cancel");
+
+    if (!modal || !titleEl || !msgEl || !btnSave || !btnDontSave || !btnCancel) {
+      const ok = confirm(`'${tab.name}' への変更を保存しますか？`);
+      resolve(ok ? "save" : "dontsave");
+      return;
+    }
+
+    titleEl.textContent = `'${tab.name}' への変更を保存しますか？`;
+    msgEl.textContent = "保存しない場合、変更内容はすべて失われます。";
+    modal.classList.remove("hidden");
+
+    const cleanup = () => {
+      modal.classList.add("hidden");
+      btnSave.onclick = null;
+      btnDontSave.onclick = null;
+      btnCancel.onclick = null;
+    };
+
+    btnSave.onclick = async () => {
+      cleanup();
+      await saveFileTab(tab);
+      resolve("save");
+    };
+
+    btnDontSave.onclick = () => {
+      cleanup();
+      resolve("dontsave");
+    };
+
+    btnCancel.onclick = () => {
+      cleanup();
+      resolve("cancel");
+    };
+  });
 }
 
 function getFileIcon(filename: string): string {
@@ -1314,7 +1445,7 @@ function updateBreadcrumbs(filePath: string | null) {
     return;
   }
 
-  const normalized = filePath.replace(/\\/g, "/");
+  const normalized = normalizePath(filePath);
   const parts = normalized.split("/").filter(Boolean);
   
   breadcrumbEl.innerHTML = "";
@@ -1366,9 +1497,9 @@ function updateTabBar() {
     closeBtn.className = "tab-close";
     closeBtn.textContent = "×";
     closeBtn.title = "閉じる";
-    closeBtn.onclick = (e) => {
+    closeBtn.onclick = async (e) => {
       e.stopPropagation();
-      closeTab(path);
+      await closeTab(path);
     };
     tabEl.appendChild(closeBtn);
 
@@ -1384,10 +1515,26 @@ function updateTabBar() {
   updateBreadcrumbs(activeFilePath);
 }
 
-function closeTab(path: string) {
-  if (!openTabs.has(path)) return;
+async function closeTab(rawPath: string): Promise<boolean> {
+  const path = normalizePath(rawPath);
+  if (!openTabs.has(path)) return false;
 
   const tab = openTabs.get(path)!;
+  const choice = await promptSaveIfDirty(tab);
+  if (choice === "cancel") {
+    return false;
+  }
+
+  // Send didClose to LSP
+  const language = getLanguageFromPath(tab.path);
+  invoke("lsp_send_notification", {
+    lang: language,
+    method: "textDocument/didClose",
+    params: {
+      textDocument: { uri: pathToUri(tab.path) },
+    },
+  }).catch(() => {});
+
   tab.model.dispose();
   openTabs.delete(path);
 
@@ -1402,19 +1549,23 @@ function closeTab(path: string) {
         const emptyModel = monaco.editor.createModel("", "plaintext");
         editor1.setModel(emptyModel);
       }
+      if (editor2 && isSplitActive) {
+        const emptyModel = monaco.editor.createModel("", "plaintext");
+        editor2.setModel(emptyModel);
+      }
     }
   }
   updateTabBar();
+  return true;
 }
 
-function closeOtherTabs(keepPath: string) {
-  Array.from(openTabs.keys()).forEach((path) => {
-    if (path !== keepPath) {
-      const tab = openTabs.get(path)!;
-      tab.model.dispose();
-      openTabs.delete(path);
-    }
-  });
+async function closeOtherTabs(targetRawPath: string) {
+  const keepPath = normalizePath(targetRawPath);
+  const paths = Array.from(openTabs.keys()).filter((p) => p !== keepPath);
+  for (const p of paths) {
+    const closed = await closeTab(p);
+    if (!closed) break;
+  }
   if (activeFilePath !== keepPath) {
     const keepTab = openTabs.get(keepPath);
     if (keepTab) openFile(keepTab.path, keepTab.name);
@@ -1423,32 +1574,25 @@ function closeOtherTabs(keepPath: string) {
   }
 }
 
-function closeTabsToTheRight(targetPath: string) {
+async function closeTabsToTheRight(targetRawPath: string) {
+  const targetPath = normalizePath(targetRawPath);
   const keys = Array.from(openTabs.keys());
   const idx = keys.indexOf(targetPath);
   if (idx !== -1) {
     for (let i = idx + 1; i < keys.length; i++) {
       const p = keys[i];
-      openTabs.get(p)?.model.dispose();
-      openTabs.delete(p);
-    }
-    if (!openTabs.has(activeFilePath || "")) {
-      const lastKey = Array.from(openTabs.keys()).pop();
-      if (lastKey) openFile(lastKey, openTabs.get(lastKey)!.name);
-    } else {
-      updateTabBar();
+      const closed = await closeTab(p);
+      if (!closed) break;
     }
   }
 }
 
-function closeAllTabs() {
-  openTabs.forEach((tab) => tab.model.dispose());
-  openTabs.clear();
-  activeFilePath = null;
-  if (editor1) {
-    editor1.setModel(monaco.editor.createModel("", "plaintext"));
+async function closeAllTabs() {
+  const paths = Array.from(openTabs.keys());
+  for (const p of paths) {
+    const closed = await closeTab(p);
+    if (!closed) break;
   }
-  updateTabBar();
 }
 
 function showTabContextMenu(x: number, y: number, targetPath: string) {
