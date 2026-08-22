@@ -40,14 +40,12 @@ body {
   justify-content: space-between;
   padding: 0 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  position: relative;
-  z-index: 50;
 }
 
 .titlebar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .app-icon {
@@ -62,21 +60,18 @@ body {
 
 .menu-bar {
   display: flex;
-  gap: 2px;
-}
-
-.menu-item-wrapper {
-  position: relative;
+  gap: 1px;
 }
 
 .menu-btn {
   background: none;
   border: none;
   color: var(--text-main);
-  padding: 4px 8px;
+  padding: 4px 7px;
   font-size: 12px;
   border-radius: 4px;
   cursor: pointer;
+  outline: none;
 }
 
 .menu-btn:hover, .menu-btn.active {
@@ -84,49 +79,60 @@ body {
   color: var(--text-bright);
 }
 
-.dropdown-menu {
-  position: absolute;
-  top: 100%;
+/* Global Top Menu Dropdown (VS Code Dark+ Style) */
+#global-menu-dropdown {
+  position: fixed;
+  top: 35px;
   left: 0;
-  min-width: 220px;
-  background-color: var(--bg-sidebar);
-  border: 1px solid var(--border-color);
+  min-width: 240px;
+  background-color: #252526;
+  border: 1px solid #454545;
   border-radius: 4px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   padding: 4px 0;
-  z-index: 1000;
+  z-index: 99999;
 }
 
-.dropdown-menu.hidden {
+#global-menu-dropdown.hidden {
   display: none;
 }
 
-.dropdown-item {
-  padding: 6px 12px;
+.menu-dropdown-item {
+  padding: 6px 14px;
   font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  color: var(--text-main);
+  color: #cccccc;
 }
 
-.dropdown-item:hover {
-  background-color: var(--accent-color);
-  color: var(--text-bright);
+.menu-dropdown-item:hover {
+  background-color: #007acc;
+  color: #ffffff;
 }
 
-.dropdown-item .shortcut {
+.menu-dropdown-item.disabled {
+  color: #666666;
+  cursor: default;
+}
+
+.menu-dropdown-item.disabled:hover {
+  background: none;
+  color: #666666;
+}
+
+.menu-dropdown-item .item-shortcut {
   font-size: 11px;
-  color: var(--text-muted);
-  margin-left: 12px;
+  color: #858585;
+  margin-left: 20px;
 }
 
-.dropdown-item:hover .shortcut {
-  color: var(--text-bright);
+.menu-dropdown-item:hover .item-shortcut {
+  color: #ffffff;
 }
 
-.dropdown-separator {
+.menu-dropdown-separator {
   height: 1px;
   background-color: rgba(255, 255, 255, 0.08);
   margin: 4px 0;
@@ -528,7 +534,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  z-index: 2000;
+  z-index: 20000;
   display: flex;
   flex-direction: column;
 }

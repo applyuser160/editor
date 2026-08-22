@@ -48,6 +48,14 @@ interface OpenTab {
   isDirty: boolean;
 }
 
+interface MenuItemDef {
+  type?: "separator";
+  label?: string;
+  shortcut?: string;
+  disabled?: boolean;
+  action?: () => void;
+}
+
 // Global State
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
 let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -57,6 +65,9 @@ let splitOrientation: "horizontal" | "vertical" = "horizontal";
 let ptyId: number | null = null;
 let xtermInstance: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
+
+let isTopMenuOpen = false;
+let currentOpenMenuKey: string | null = null;
 
 let quickPickItems: Array<{ id: string; title: string; subtitle?: string; shortcut?: string; action: () => void }> = [];
 let quickPickSelectedIndex = 0;
@@ -70,7 +81,7 @@ let isTerminalVisible = true;
 // Initialize when DOM is ready
 window.addEventListener("DOMContentLoaded", () => {
   initMonacoEditors();
-  setupMenuDropdowns();
+  setupVSCodeMenus();
   setupActivityBar();
   setupResizers();
   setupGridSplitters();
@@ -176,117 +187,167 @@ fn main() {
   updateTabBar();
 }
 
-// 2. Menu Bar Dropdowns (File, Edit, View, Terminal, Help)
-function setupMenuDropdowns() {
-  const menuButtons = [
-    { btn: "menu-file", dropdown: "dropdown-file" },
-    { btn: "menu-edit", dropdown: "dropdown-edit" },
-    { btn: "menu-view", dropdown: "dropdown-view" },
-    { btn: "menu-terminal", dropdown: "dropdown-terminal" },
-    { btn: "menu-help", dropdown: "dropdown-help" },
-  ];
+// 2. VS Code Standard Menu System (8 Menus with Mouse Hover Tracking)
+function setupVSCodeMenus() {
+  const menuDefs: Record<string, MenuItemDef[]> = {
+    file: [
+      { label: "新規テキスト ファイル (New Text File)", shortcut: "Ctrl+N", action: () => document.getElementById("btn-new-file")?.click() },
+      { label: "新規ファイル... (New File...)", shortcut: "Ctrl+Alt+Win+N", action: () => document.getElementById("btn-new-file")?.click() },
+      { label: "新規フォルダー... (New Folder...)", action: () => document.getElementById("btn-new-folder")?.click() },
+      { type: "separator" },
+      { label: "保存 (Save)", shortcut: "Ctrl+S", action: () => saveActiveFile() },
+      { label: "名前を付けて保存... (Save As...)", shortcut: "Ctrl+Shift+S", action: () => saveActiveFile() },
+      { label: "すべて保存 (Save All)", action: () => saveActiveFile() },
+      { type: "separator" },
+      { label: "エディターを閉じる (Close Editor)", shortcut: "Ctrl+W", action: () => { if (activeFilePath) closeTab(activeFilePath); } },
+      { label: "フォルダーを閉じる (Close Folder)", shortcut: "Ctrl+K F", action: () => { openTabs.clear(); activeFilePath = null; updateTabBar(); } },
+    ],
+    edit: [
+      { label: "元に戻す (Undo)", shortcut: "Ctrl+Z", action: () => editor1?.trigger("menu", "undo", null) },
+      { label: "やり直し (Redo)", shortcut: "Ctrl+Y", action: () => editor1?.trigger("menu", "redo", null) },
+      { type: "separator" },
+      { label: "切り取り (Cut)", shortcut: "Ctrl+X", action: () => document.execCommand("cut") },
+      { label: "コピー (Copy)", shortcut: "Ctrl+C", action: () => document.execCommand("copy") },
+      { label: "貼り付け (Paste)", shortcut: "Ctrl+V", action: () => document.execCommand("paste") },
+      { type: "separator" },
+      { label: "検索 (Find)", shortcut: "Ctrl+F", action: () => editor1?.trigger("menu", "actions.find", null) },
+      { label: "置換 (Replace)", shortcut: "Ctrl+H", action: () => editor1?.trigger("menu", "editor.action.startFindReplaceAction", null) },
+      { label: "フォルダー内を検索 (Find in Files)", shortcut: "Ctrl+Shift+F", action: () => document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click() },
+    ],
+    selection: [
+      { label: "すべて選択 (Select All)", shortcut: "Ctrl+A", action: () => editor1?.trigger("menu", "editor.action.selectAll", null) },
+      { label: "行を上にコピー (Copy Line Up)", shortcut: "Alt+Shift+Up", action: () => editor1?.trigger("menu", "editor.action.copyLinesUpAction", null) },
+      { label: "行を下にコピー (Copy Line Down)", shortcut: "Alt+Shift+Down", action: () => editor1?.trigger("menu", "editor.action.copyLinesDownAction", null) },
+      { label: "行を上に移動 (Move Line Up)", shortcut: "Alt+Up", action: () => editor1?.trigger("menu", "editor.action.moveCarretUpAction", null) },
+      { label: "行を下に移動 (Move Line Down)", shortcut: "Alt+Down", action: () => editor1?.trigger("menu", "editor.action.moveCarretDownAction", null) },
+    ],
+    view: [
+      { label: "コマンド パレット... (Command Palette...)", shortcut: "Ctrl+Shift+P", action: () => openQuickPick(true) },
+      { label: "クイック オープン... (Quick Open...)", shortcut: "Ctrl+P", action: () => openQuickPick(false) },
+      { type: "separator" },
+      { label: "エクスプローラー (Explorer)", shortcut: "Ctrl+Shift+E", action: () => document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click() },
+      { label: "検索 (Search)", shortcut: "Ctrl+Shift+F", action: () => document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click() },
+      { label: "ソース管理 (Source Control)", shortcut: "Ctrl+Shift+G", action: () => document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click() },
+      { label: "拡張機能 (Extensions)", shortcut: "Ctrl+Shift+X", action: () => document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click() },
+      { type: "separator" },
+      { label: "ターミナル (Terminal)", shortcut: "Ctrl+J", action: () => toggleTerminal() },
+      { label: "プライマリ サイドバーの切り替え", shortcut: "Ctrl+B", action: () => toggleSidebar() },
+      { type: "separator" },
+      { label: "エディターを右に分割 (Split Right)", shortcut: "◫", action: () => document.getElementById("btn-split-right")?.click() },
+      { label: "エディターを下に分割 (Split Down)", shortcut: "⬒", action: () => document.getElementById("btn-split-down")?.click() },
+    ],
+    go: [
+      { label: "ファイルへ移動... (Go to File...)", shortcut: "Ctrl+P", action: () => openQuickPick(false) },
+      { label: "行/列へ移動... (Go to Line/Column...)", shortcut: "Ctrl+G", action: () => editor1?.trigger("menu", "editor.action.gotoLine", null) },
+      { label: "記号へ移動... (Go to Symbol...)", shortcut: "Ctrl+Shift+O", action: () => openQuickPick(true) },
+    ],
+    run: [
+      { label: "デバッグの開始 (Start Debugging)", shortcut: "F5", action: () => showStatusMessage("デバッガーを起動中...") },
+      { label: "デバッグなしで実行 (Run Without Debugging)", shortcut: "Ctrl+F5", action: () => showStatusMessage("プログラムを実行中...") },
+    ],
+    terminal: [
+      { label: "新しいターミナル (New Terminal)", shortcut: "Ctrl+Shift+`", action: () => toggleTerminal(true) },
+      { label: "ターミナルをクリア (Clear Terminal)", action: () => xtermInstance?.clear() },
+      { label: "ターミナル パネルの切り替え", shortcut: "Ctrl+J", action: () => toggleTerminal() },
+    ],
+    help: [
+      { label: "へようこそ (Welcome)", action: () => openFile("welcome.rs", "welcome.rs") },
+      { label: "ドキュメント (Documentation)", action: () => window.open("https://github.com/applyuser160/editor#readme", "_blank") },
+      { label: "キーボード ショートカット (Keyboard Shortcuts)", shortcut: "Ctrl+K Ctrl+S", action: () => openQuickPick(true) },
+      { type: "separator" },
+      { label: "GitHub リポジトリを開く", action: () => window.open("https://github.com/applyuser160/editor", "_blank") },
+      { type: "separator" },
+      { label: "Oxide Editor について (About Oxide Editor)", action: () => alert("🦀 Oxide Editor v0.1.0\nMicrosoft VS Code on Tauri v2 Architecture\nUltra-fast & Lightweight Native Rust IDE") },
+    ],
+  };
 
-  function closeAllDropdowns() {
-    menuButtons.forEach((m) => {
-      document.getElementById(m.dropdown)?.classList.add("hidden");
-      document.getElementById(m.btn)?.classList.remove("active");
-    });
+  const menuButtons = document.querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn");
+  const dropdownEl = document.getElementById("global-menu-dropdown");
+  if (!dropdownEl) return;
+
+  function closeMenu() {
+    isTopMenuOpen = false;
+    currentOpenMenuKey = null;
+    dropdownEl?.classList.add("hidden");
+    menuButtons.forEach((b) => b.classList.remove("active"));
   }
 
-  menuButtons.forEach((m) => {
-    const btnEl = document.getElementById(m.btn);
-    const dropEl = document.getElementById(m.dropdown);
-    if (!btnEl || !dropEl) return;
+  function openMenu(menuKey: string, btnEl: HTMLButtonElement) {
+    const items = menuDefs[menuKey];
+    if (!items || !dropdownEl) return;
 
-    btnEl.addEventListener("click", (e) => {
+    isTopMenuOpen = true;
+    currentOpenMenuKey = menuKey;
+    menuButtons.forEach((b) => b.classList.remove("active"));
+    btnEl.classList.add("active");
+
+    const rect = btnEl.getBoundingClientRect();
+    dropdownEl.style.left = `${rect.left}px`;
+    dropdownEl.style.top = `${rect.bottom}px`;
+    dropdownEl.innerHTML = "";
+
+    items.forEach((item) => {
+      if (item.type === "separator") {
+        const sep = document.createElement("div");
+        sep.className = "menu-dropdown-separator";
+        dropdownEl.appendChild(sep);
+      } else {
+        const row = document.createElement("div");
+        row.className = `menu-dropdown-item ${item.disabled ? "disabled" : ""}`;
+        row.innerHTML = `
+          <span>${item.label || ""}</span>
+          ${item.shortcut ? `<span class="item-shortcut">${item.shortcut}</span>` : ""}
+        `;
+        row.onclick = (e) => {
+          e.stopPropagation();
+          closeMenu();
+          if (item.action && !item.disabled) {
+            item.action();
+          }
+        };
+        dropdownEl.appendChild(row);
+      }
+    });
+
+    dropdownEl.classList.remove("hidden");
+  }
+
+  menuButtons.forEach((btn) => {
+    const key = btn.getAttribute("data-menu");
+    if (!key) return;
+
+    btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const isCurrentlyOpen = !dropEl.classList.contains("hidden");
-      closeAllDropdowns();
-      if (!isCurrentlyOpen) {
-        dropEl.classList.remove("hidden");
-        btnEl.classList.add("active");
+      if (isTopMenuOpen && currentOpenMenuKey === key) {
+        closeMenu();
+      } else {
+        openMenu(key, btn);
+      }
+    });
+
+    // Seamless mouse hover tracking (VS Code standard behavior)
+    btn.addEventListener("mouseenter", () => {
+      if (isTopMenuOpen && currentOpenMenuKey !== key) {
+        openMenu(key, btn);
       }
     });
   });
 
   document.addEventListener("click", () => {
-    closeAllDropdowns();
+    if (isTopMenuOpen) closeMenu();
   });
 
-  // Action dispatch
-  document.querySelectorAll<HTMLElement>(".dropdown-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      closeAllDropdowns();
-      const action = item.getAttribute("data-action");
-      if (!action) return;
-
-      switch (action) {
-        case "new_file":
-          document.getElementById("btn-new-file")?.click();
-          break;
-        case "save_file":
-          saveActiveFile();
-          break;
-        case "close_tab":
-          if (activeFilePath) closeTab(activeFilePath);
-          break;
-        case "undo":
-          editor1?.trigger("menu", "undo", null);
-          break;
-        case "redo":
-          editor1?.trigger("menu", "redo", null);
-          break;
-        case "find":
-          editor1?.trigger("menu", "actions.find", null);
-          break;
-        case "command_palette":
-          openQuickPick(true);
-          break;
-        case "quick_open":
-          openQuickPick(false);
-          break;
-        case "view_explorer":
-          document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
-          break;
-        case "view_search":
-          document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
-          break;
-        case "view_scm":
-          document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
-          break;
-        case "view_extensions":
-          document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
-          break;
-        case "toggle_sidebar":
-          toggleSidebar();
-          break;
-        case "toggle_terminal":
-          toggleTerminal();
-          break;
-        case "split_right":
-          document.getElementById("btn-split-right")?.click();
-          break;
-        case "split_down":
-          document.getElementById("btn-split-down")?.click();
-          break;
-        case "clear_terminal":
-          xtermInstance?.clear();
-          break;
-        case "about":
-          alert("🦀 Oxide Editor v0.1.0\nVS Code on Tauri v2 (Rust Core + System WebView2)\nUltra-fast & Lightweight Desktop IDE");
-          break;
-        case "open_github":
-          window.open("https://github.com/applyuser160/editor", "_blank");
-          break;
-      }
-    });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isTopMenuOpen) {
+      closeMenu();
+    }
   });
 }
 
-function toggleTerminal() {
+function toggleTerminal(forceOpen?: boolean) {
   const panelPart = document.getElementById("panel-part");
   if (panelPart) {
-    isTerminalVisible = !isTerminalVisible;
+    isTerminalVisible = forceOpen !== undefined ? forceOpen : !isTerminalVisible;
     panelPart.style.display = isTerminalVisible ? "flex" : "none";
     editor1?.layout();
     editor2?.layout();
@@ -847,10 +908,8 @@ async function renderExtensionsView(container: HTMLElement) {
     }
   }
 
-  // Initial load
   searchMarketplace("");
 
-  // Search input handler
   if (searchInput) {
     let timeout: any = null;
     searchInput.addEventListener("input", () => {
