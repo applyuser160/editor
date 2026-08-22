@@ -511,6 +511,9 @@ fn main() {
     },
   });
 
+  editor1.onMouseDown(() => closeGlobalMenu());
+  editor2.onMouseDown(() => closeGlobalMenu());
+
   openTabs.set("welcome.rs", {
     path: "welcome.rs",
     name: "welcome.rs",
@@ -518,7 +521,6 @@ fn main() {
     isDirty: false,
   });
   activeFilePath = "welcome.rs";
-  ensureLspServerStarted("rust");
   updateTabBar();
 }
 
@@ -850,6 +852,8 @@ function setupVSCodeMenus() {
     });
   }
 
+  const backdropEl = document.getElementById("menu-backdrop");
+
   function openMenu(menuKey: string, btnEl: HTMLButtonElement) {
     const items = menuDefs[menuKey];
     if (!items || !dropdownEl) return;
@@ -871,6 +875,7 @@ function setupVSCodeMenus() {
     renderMenuLevel(items, dropdownEl);
 
     dropdownEl.classList.remove("hidden");
+    backdropEl?.classList.remove("hidden");
   }
 
   menuButtons.forEach((btn) => {
@@ -893,9 +898,25 @@ function setupVSCodeMenus() {
     });
   });
 
+  backdropEl?.addEventListener("pointerdown", () => closeGlobalMenu());
+  backdropEl?.addEventListener("click", () => closeGlobalMenu());
+
   // Capture-phase pointerdown to dismiss menus when clicking anywhere outside
-  document.addEventListener(
+  window.addEventListener(
     "pointerdown",
+    (e) => {
+      if (!isTopMenuOpen) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("#global-menu-dropdown") || target?.closest(".vs-dropdown") || target?.closest("#top-menu-bar")) {
+        return;
+      }
+      closeGlobalMenu();
+    },
+    true
+  );
+
+  window.addEventListener(
+    "mousedown",
     (e) => {
       if (!isTopMenuOpen) return;
       const target = e.target as HTMLElement | null;
@@ -919,6 +940,8 @@ function closeGlobalMenu() {
   currentOpenMenuKey = null;
   const dropdownEl = document.getElementById("global-menu-dropdown");
   dropdownEl?.classList.add("hidden");
+  const backdropEl = document.getElementById("menu-backdrop");
+  backdropEl?.classList.add("hidden");
   document.querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn").forEach((b) => b.classList.remove("active"));
   if (activeSubmenuEl) {
     activeSubmenuEl.remove();
