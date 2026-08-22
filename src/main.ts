@@ -80,9 +80,11 @@ let currentActiveView = "explorer";
 let isSidebarVisible = true;
 let isTerminalVisible = true;
 
+const activeLspServers = new Set<string>();
+
 // Initialize when DOM is ready
 window.addEventListener("DOMContentLoaded", () => {
-  initLanguageProviders();
+  initLanguageServerIntegration();
   initMonacoEditors();
   setupVSCodeMenus();
   setupActivityBar();
@@ -98,43 +100,155 @@ window.addEventListener("DOMContentLoaded", () => {
   loadWorkspaceFiles();
 });
 
-// 1. Language Intelligence & Go to Definition Provider (F12)
-function initLanguageProviders() {
-  const supportedLanguages = ["rust", "typescript", "javascript", "python", "go", "cpp", "c", "html", "css", "json"];
+// 1. Language Server Protocol (LSP) Integration (Hover, Completion, Definition, Formatting, Diagnostics)
+async function initLanguageServerIntegration() {
+  const supportedLangs = ["rust", "typescript", "javascript", "python", "go"];
 
-  supportedLanguages.forEach((lang) => {
-    monaco.languages.registerDefinitionProvider(lang, {
-      provideDefinition: async (model, position) => {
-        const word = model.getWordAtPosition(position);
-        if (!word) return null;
+  // 1. Diagnostics Listener
+  await listen<{ lang: string; params: any }>("lsp-diagnostics", (event) => {
+    const { params } = event.payload;
+    if (!params || !params.uri || !params.diagnostics) return;
 
-        const targetSymbol = word.word;
+    const uriStr = params.uri;
+    openTabs.forEach((tab) => {
+      if (uriStr.endsWith(tab.path.replace(/\\/g, "/"))) {
+        const markers: monaco.editor.IMarkerData[] = params.diagnostics.map((d: any) => ({
+          severity:
+            d.severity === 1
+              ? monaco.MarkerSeverity.Error
+              : d.severity === 2
+              ? monaco.MarkerSeverity.Warning
+              : monaco.MarkerSeverity.Info,
+          message: d.message,
+          startLineNumber: (d.range?.start?.line ?? 0) + 1,
+          startColumn: (d.range?.start?.character ?? 0) + 1,
+          endLineNumber: (d.range?.end?.line ?? 0) + 1,
+          endColumn: (d.range?.end?.character ?? 0) + 1,
+        }));
+        monaco.editor.setModelMarkers(tab.model, "lsp", markers);
+        updateStatusMarkersCount(markers);
+      }
+    });
+  });
 
-        // 1. Search in current file first
-        const currentMatches = model.findMatches(
-          `\\b(fn|let|struct|enum|trait|class|def|function|const|var|interface|type)\\s+${targetSymbol}\\b`,
-          false,
-          true,
-          false,
-          null,
-          true
-        );
-
-        if (currentMatches.length > 0) {
-          return {
-            uri: model.uri,
-            range: currentMatches[0].range,
-          };
+  // 2. Register LSP Providers for all supported languages
+  supportedLangs.forEach((lang) => {
+    // Hover Provider
+    monaco.languages.registerHoverProvider(lang, {
+      provideHover: async (model, position) => {
+        const uri = `file:///${model.uri.path}`;
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/hover",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          });
+          if (res && res.contents) {
+            const rawContent = Array.isArray(res.contents) ? res.contents.map((c: any) => c.value || c).join("\n\n") : res.contents.value || res.contents;
+            return {
+              contents: [{ value: rawContent }],
+            };
+          }
+        } catch (e) {
+          // Fallback to symbol lookup
         }
 
-        // 2. Search across entire workspace via Rust search_in_workspace
+        const word = model.getWordAtPosition(position);
+        if (word) {
+          return {
+            contents: [{ value: `**${word.word}** (${lang})` }],
+          };
+        }
+        return null;
+      },
+    });
+
+    // Completion Provider
+    monaco.languages.registerCompletionItemProvider(lang, {
+      provideCompletionItems: async (model, position) => {
+        const uri = `file:///${model.uri.path}`;
         try {
-          const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/completion",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          });
+          if (res) {
+            const items = Array.isArray(res) ? res : res.items || [];
+            const suggestions: monaco.languages.CompletionItem[] = items.map((item: any) => ({
+              label: item.label,
+              kind: mapLspKindToMonaco(item.kind),
+              detail: item.detail,
+              documentation: item.documentation?.value || item.documentation,
+              insertText: item.insertText || item.label,
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: position.column - (model.getWordUntilPosition(position).word.length),
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              },
+            }));
+            return { suggestions };
+          }
+        } catch (e) {
+          // Fallback
+        }
+        return { suggestions: [] };
+      },
+    });
+
+    // Go to Definition Provider (F12)
+    monaco.languages.registerDefinitionProvider(lang, {
+      provideDefinition: async (model, position) => {
+        const uri = `file:///${model.uri.path}`;
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/definition",
+            params: {
+              textDocument: { uri },
+              position: { line: position.lineNumber - 1, character: position.column - 1 },
+            },
+          });
+
+          if (res) {
+            const loc = Array.isArray(res) ? res[0] : res;
+            if (loc && loc.uri && loc.range) {
+              const targetPath = loc.uri.replace("file:///", "");
+              const fileName = targetPath.split("/").pop() || targetPath;
+              await openFile(targetPath, fileName);
+              return {
+                uri: monaco.Uri.parse(loc.uri),
+                range: new monaco.Range(
+                  loc.range.start.line + 1,
+                  loc.range.start.character + 1,
+                  loc.range.end.line + 1,
+                  loc.range.end.character + 1
+                ),
+              };
+            }
+          }
+        } catch (e) {
+          // Fallback to workspace symbol search
+        }
+
+        const word = model.getWordAtPosition(position);
+        if (!word) return null;
+        const targetSymbol = word.word;
+
+        try {
+          const matches = await invoke<SearchMatch[]>("search_in_workspace", {
             query: targetSymbol,
             caseSensitive: true,
           });
 
-          const defMatch = workspaceMatches.find((m) => {
+          const defMatch = matches.find((m) => {
             const line = m.line_text;
             return (
               line.includes(`fn ${targetSymbol}`) ||
@@ -159,13 +273,89 @@ function initLanguageProviders() {
             }
           }
         } catch (e) {
-          console.error("Definition lookup error:", e);
+          console.error(e);
         }
 
         return null;
       },
     });
+
+    // Document Formatting Provider (Shift+Alt+F)
+    monaco.languages.registerDocumentFormattingEditProvider(lang, {
+      provideDocumentFormattingEdits: async (model) => {
+        const uri = `file:///${model.uri.path}`;
+        try {
+          const res: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/formatting",
+            params: {
+              textDocument: { uri },
+              options: { tabSize: 4, insertSpaces: true },
+            },
+          });
+          if (Array.isArray(res)) {
+            return res.map((e: any) => ({
+              range: new monaco.Range(
+                e.range.start.line + 1,
+                e.range.start.character + 1,
+                e.range.end.line + 1,
+                e.range.end.character + 1
+              ),
+              text: e.newText,
+            }));
+          }
+        } catch (e) {
+          console.error("Formatting error:", e);
+        }
+        return [];
+      },
+    });
   });
+}
+
+function mapLspKindToMonaco(kind: number): monaco.languages.CompletionItemKind {
+  switch (kind) {
+    case 1: return monaco.languages.CompletionItemKind.Text;
+    case 2: return monaco.languages.CompletionItemKind.Method;
+    case 3: return monaco.languages.CompletionItemKind.Function;
+    case 4: return monaco.languages.CompletionItemKind.Constructor;
+    case 5: return monaco.languages.CompletionItemKind.Field;
+    case 6: return monaco.languages.CompletionItemKind.Variable;
+    case 7: return monaco.languages.CompletionItemKind.Class;
+    case 8: return monaco.languages.CompletionItemKind.Interface;
+    case 9: return monaco.languages.CompletionItemKind.Module;
+    case 10: return monaco.languages.CompletionItemKind.Property;
+    case 14: return monaco.languages.CompletionItemKind.Keyword;
+    case 15: return monaco.languages.CompletionItemKind.Snippet;
+    default: return monaco.languages.CompletionItemKind.Text;
+  }
+}
+
+async function ensureLspServerStarted(lang: string) {
+  if (activeLspServers.has(lang)) return;
+
+  const validLspLangs = ["rust", "typescript", "javascript", "python", "go"];
+  if (!validLspLangs.includes(lang)) return;
+
+  try {
+    const res = await invoke<string>("lsp_start_server", {
+      lang,
+      workspaceRoot: ".",
+    });
+    activeLspServers.add(lang);
+    showStatusMessage(`LSP: ${res}`);
+  } catch (err) {
+    console.warn(`LSP startup notice: ${err}`);
+  }
+}
+
+function updateStatusMarkersCount(markers: monaco.editor.IMarkerData[]) {
+  const errors = markers.filter((m) => m.severity === monaco.MarkerSeverity.Error).length;
+  const warnings = markers.filter((m) => m.severity === monaco.MarkerSeverity.Warning).length;
+  const statusMarkersEl = document.querySelector("#statusbar .statusbar-left span:nth-child(2)");
+  if (statusMarkersEl) {
+    statusMarkersEl.textContent = `⚠️ ${warnings}  ❌ ${errors}`;
+  }
 }
 
 // 2. Initialize Monaco Editors
@@ -262,10 +452,11 @@ fn main() {
     isDirty: false,
   });
   activeFilePath = "welcome.rs";
+  ensureLspServerStarted("rust");
   updateTabBar();
 }
 
-// 3. VS Code Exact Menu System (Full Structure from Official VS Code UI)
+// 3. VS Code Exact Menu System
 function setupVSCodeMenus() {
   const menuDefs: Record<string, MenuItemDef[]> = {
     file: [
@@ -422,7 +613,7 @@ function setupVSCodeMenus() {
     }
   }
 
-  function renderMenuLevel(items: MenuItemDef[], container: HTMLElement, parentItemEl?: HTMLElement) {
+  function renderMenuLevel(items: MenuItemDef[], container: HTMLElement) {
     container.innerHTML = "";
     items.forEach((item) => {
       if (item.type === "separator") {
@@ -797,6 +988,16 @@ async function openFile(path: string, name: string) {
         const tab = openTabs.get(path)!;
         tab.isDirty = true;
         updateTabBar();
+
+        // Notify LSP of change
+        invoke("lsp_send_notification", {
+          lang: language,
+          method: "textDocument/didChange",
+          params: {
+            textDocument: { uri: `file:///${path}`, version: 1 },
+            contentChanges: [{ text: model.getValue() }],
+          },
+        }).catch(() => {});
       }
     });
 
@@ -806,6 +1007,21 @@ async function openFile(path: string, name: string) {
     if (isSplitActive && editor2) {
       editor2.setModel(model);
     }
+
+    // Ensure LSP is running and send didOpen
+    ensureLspServerStarted(language);
+    invoke("lsp_send_notification", {
+      lang: language,
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: `file:///${path}`,
+          languageId: language,
+          version: 1,
+          text: content,
+        },
+      },
+    }).catch(() => {});
 
     updateTabBar();
     updateStatusBar(path);
@@ -822,11 +1038,22 @@ async function saveActiveFile() {
   if (!tab) return;
 
   const content = tab.model.getValue();
+  const language = getLanguageFromPath(tab.path);
   try {
     await invoke("write_file_content", { path: tab.path, content });
     tab.isDirty = false;
     updateTabBar();
     showStatusMessage(`保存完了: ${tab.name}`);
+
+    // Notify LSP of save
+    invoke("lsp_send_notification", {
+      lang: language,
+      method: "textDocument/didSave",
+      params: {
+        textDocument: { uri: `file:///${tab.path}` },
+        text: content,
+      },
+    }).catch(() => {});
   } catch (err) {
     showStatusMessage(`保存失敗: ${err}`);
   }
@@ -897,6 +1124,7 @@ function getLanguageFromPath(path: string): string {
     case "html": return "html";
     case "css": return "css";
     case "py": return "python";
+    case "go": return "go";
     case "sh": return "shell";
     default: return "plaintext";
   }
@@ -1009,7 +1237,6 @@ async function renderExtensionsView(container: HTMLElement) {
   const marketplaceList = document.getElementById("openvsx-ext-list");
   const searchInput = document.getElementById("openvsx-search-input") as HTMLInputElement;
 
-  // Render installed
   if (installedList) {
     try {
       const exts = await invoke<ExtensionManifest[]>("get_installed_extensions");
@@ -1034,7 +1261,6 @@ async function renderExtensionsView(container: HTMLElement) {
     }
   }
 
-  // Search Open VSX
   async function searchMarketplace(query: string) {
     if (!marketplaceList) return;
     marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">Open VSX を検索中...</div>`;

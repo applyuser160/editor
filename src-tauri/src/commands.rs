@@ -1,6 +1,8 @@
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
+use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -41,6 +43,36 @@ pub struct OpenVsxExtension {
     pub display_name: Option<String>,
     pub description: Option<String>,
     pub download_count: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn lsp_start_server(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    lang: String,
+    workspace_root: String,
+) -> Result<String, String> {
+    state.start_server(app, &lang, &workspace_root)
+}
+
+#[tauri::command]
+pub async fn lsp_send_notification(
+    state: State<'_, LspState>,
+    lang: String,
+    method: String,
+    params: Value,
+) -> Result<(), String> {
+    state.send_notification(&lang, &method, params)
+}
+
+#[tauri::command]
+pub async fn lsp_send_request(
+    state: State<'_, LspState>,
+    lang: String,
+    method: String,
+    params: Value,
+) -> Result<Value, String> {
+    state.send_request(&lang, &method, params).await
 }
 
 #[tauri::command]

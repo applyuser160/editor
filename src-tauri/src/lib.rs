@@ -1,19 +1,23 @@
 pub mod commands;
 pub mod extension_host;
 pub mod file_watcher;
+pub mod lsp_client;
 pub mod pty_manager;
 
 use extension_host::ExtensionHostState;
 use file_watcher::FileWatcherManager;
+use lsp_client::LspState;
 use pty_manager::PtyState;
 
 pub fn run() {
     let pty_state = PtyState::new();
     let ext_state = ExtensionHostState::new();
+    let lsp_state = LspState::new();
 
     tauri::Builder::default()
         .manage(pty_state)
         .manage(ext_state)
+        .manage(lsp_state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -24,6 +28,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::lsp_start_server,
+            commands::lsp_send_notification,
+            commands::lsp_send_request,
             commands::search_openvsx_extensions,
             commands::install_openvsx_extension,
             commands::git_list_branches,
