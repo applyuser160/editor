@@ -23,6 +23,15 @@ interface GitStatusResult {
   changed_files: string[];
 }
 
+interface ExtensionManifest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  contributes_languages: string[];
+  contributes_themes: string[];
+}
+
 interface OpenTab {
   path: string;
   name: string;
@@ -40,6 +49,9 @@ let ptyId: number | null = null;
 let xtermInstance: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 
+let quickPickItems: Array<{ id: string; title: string; subtitle?: string; shortcut?: string; action: () => void }> = [];
+let quickPickSelectedIndex = 0;
+
 const openTabs: Map<string, OpenTab> = new Map();
 let activeFilePath: string | null = null;
 let currentActiveView = "explorer";
@@ -56,6 +68,8 @@ window.addEventListener("DOMContentLoaded", () => {
   setupQuickPick();
   setupShortcuts();
   setupFileActions();
+  setupFileWatcherListener();
+  initExtensionHost();
   loadWorkspaceFiles();
 });
 
@@ -241,19 +255,16 @@ async function setupIntegratedTerminal() {
 
     ptyId = await invoke<number>("spawn_pty", { cols, rows });
 
-    // Listen for PTY output stream from Rust
     await listen<string>(`pty-data-${ptyId}`, (event) => {
       xtermInstance?.write(event.payload);
     });
 
-    // Send keystrokes directly to Rust PTY
     xtermInstance.onData((data) => {
       if (ptyId !== null) {
         invoke("write_pty", { id: ptyId, data });
       }
     });
 
-    // Sync resize
     xtermInstance.onResize((size) => {
       if (ptyId !== null) {
         invoke("resize_pty", { id: ptyId, cols: size.cols, rows: size.rows });
@@ -268,7 +279,47 @@ async function setupIntegratedTerminal() {
   }
 }
 
-// 4. Open / Switch Files
+// 4. File Watcher Real-time Sync
+async function setupFileWatcherListener() {
+  await listen<{ paths: string[]; kind: string }>("fs-change", async (event) => {
+    // Refresh workspace file tree
+    if (currentActiveView === "explorer") {
+      loadWorkspaceFiles();
+    } else if (currentActiveView === "scm") {
+      const contentEl = document.getElementById("sidebar-content");
+      if (contentEl) renderScmView(contentEl);
+    }
+
+    // Auto-reload active file if modified externally and not dirty
+    if (activeFilePath && event.payload.paths.some((p) => p.endsWith(activeFilePath!))) {
+      const tab = openTabs.get(activeFilePath);
+      if (tab && !tab.isDirty) {
+        try {
+          const freshContent = await invoke<string>("read_file_content", { path: activeFilePath });
+          tab.model.setValue(freshContent);
+          showStatusMessage(`外部変更を反映: ${tab.name}`);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  });
+}
+
+// 5. Extension Host Initialization
+async function initExtensionHost() {
+  try {
+    const statusMsg = await invoke<string>("start_extension_sidecar");
+    const statusEl = document.getElementById("window-status");
+    if (statusEl) {
+      statusEl.textContent = statusMsg.includes("Node.js") ? "Extension Host (Node.js) Ready" : "Native & WASM Runtime";
+    }
+  } catch (e) {
+    console.error("Extension host init error:", e);
+  }
+}
+
+// 6. Open / Switch Files
 async function openFile(path: string, name: string) {
   if (!editor1) return;
 
@@ -312,7 +363,7 @@ async function openFile(path: string, name: string) {
   }
 }
 
-// 5. Save Active File (Ctrl+S)
+// 7. Save Active File (Ctrl+S)
 async function saveActiveFile() {
   if (!activeFilePath || !editor1) return;
   const tab = openTabs.get(activeFilePath);
@@ -329,7 +380,7 @@ async function saveActiveFile() {
   }
 }
 
-// 6. Tab Bar Rendering
+// 8. Tab Bar Rendering
 function updateTabBar() {
   const tabBar = document.getElementById("tab-bar");
   if (!tabBar) return;
@@ -399,7 +450,7 @@ function getLanguageFromPath(path: string): string {
   }
 }
 
-// 7. Activity Bar & All Sidebar Views
+// 9. Activity Bar & All Sidebar Views
 function setupActivityBar() {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".activity-btn");
   buttons.forEach((btn) => {
@@ -460,20 +511,7 @@ async function updateSidebarView(view: string) {
 
     case "extensions":
       titleEl.textContent = "拡張機能 (EXTENSIONS)";
-      contentEl.innerHTML = `
-        <div style="padding: 6px;">
-          <div style="padding: 8px; background: #2a2d2e; border-radius: 4px; margin-bottom: 8px;">
-            <div style="font-weight: bold; color: #fff;">🦀 rust-analyzer (組み込み)</div>
-            <div style="font-size: 11px; color: #888; margin-top: 2px;">Rust code intelligence and syntax highlighting</div>
-            <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Enabled)</div>
-          </div>
-          <div style="padding: 8px; background: #2a2d2e; border-radius: 4px;">
-            <div style="font-weight: bold; color: #fff;">🎨 VS Code Dark+ Theme</div>
-            <div style="font-size: 11px; color: #888; margin-top: 2px;">Default Visual Studio Code dark theme</div>
-            <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Enabled)</div>
-          </div>
-        </div>
-      `;
+      renderExtensionsView(contentEl);
       break;
 
     case "settings":
@@ -503,7 +541,33 @@ async function updateSidebarView(view: string) {
   }
 }
 
-// 8. Search Feature Integration
+// 10. Extensions Viewlet
+async function renderExtensionsView(container: HTMLElement) {
+  try {
+    const exts = await invoke<ExtensionManifest[]>("get_installed_extensions");
+    container.innerHTML = `<div style="padding: 6px;" id="ext-list-box"></div>`;
+    const box = document.getElementById("ext-list-box");
+    if (!box) return;
+
+    exts.forEach((ext) => {
+      const card = document.createElement("div");
+      card.style.cssText = "padding: 8px; background: #2a2d2e; border-radius: 4px; margin-bottom: 8px;";
+      card.innerHTML = `
+        <div style="font-weight: bold; color: #fff; display: flex; justify-content: space-between;">
+          <span>${ext.name}</span>
+          <span style="font-size: 10px; color: #888;">v${ext.version}</span>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 2px;">${ext.description}</div>
+        <div style="font-size: 10px; color: #00ff80; margin-top: 4px;">● 有効 (Installed & Active)</div>
+      `;
+      box.appendChild(card);
+    });
+  } catch (e) {
+    container.innerHTML = `<div style="color: #888; padding: 8px;">拡張機能読込エラー: ${e}</div>`;
+  }
+}
+
+// 11. Search Feature Integration
 function setupSearchInput() {
   const input = document.getElementById("global-search-input") as HTMLInputElement;
   const list = document.getElementById("search-results-list");
@@ -551,7 +615,7 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 9. SCM (Git) Integration
+// 12. SCM (Git) Integration
 async function renderScmView(container: HTMLElement) {
   try {
     const status = await invoke<GitStatusResult>("git_get_status");
@@ -601,7 +665,7 @@ async function renderScmView(container: HTMLElement) {
   }
 }
 
-// 10. Settings Handlers
+// 13. Settings Handlers
 function setupSettingsHandlers() {
   const themeSel = document.getElementById("theme-selector") as HTMLSelectElement;
   const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
@@ -623,7 +687,7 @@ function setupSettingsHandlers() {
   }
 }
 
-// 11. Workspace File Tree Loading & Actions
+// 14. Workspace File Tree Loading & Actions
 async function loadWorkspaceFiles() {
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
@@ -711,7 +775,7 @@ function setupFileActions() {
   }
 }
 
-// 12. Draggable Splitter Resizers
+// 15. Draggable Splitter Resizers
 function setupResizers() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebar = document.getElementById("sidebar");
@@ -780,7 +844,7 @@ function setupResizers() {
   }
 }
 
-// 13. QuickPick Modal (Ctrl+P / Ctrl+Shift+P)
+// 16. QuickPick Modal with Keyboard Navigation (Arrow Keys + Enter)
 function setupQuickPick() {
   const modal = document.getElementById("quickpick-modal");
   const input = document.getElementById("quickpick-input") as HTMLInputElement;
@@ -795,6 +859,24 @@ function setupQuickPick() {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       modal.classList.add("hidden");
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (quickPickItems.length > 0) {
+        quickPickSelectedIndex = (quickPickSelectedIndex + 1) % quickPickItems.length;
+        renderQuickPickDom();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (quickPickItems.length > 0) {
+        quickPickSelectedIndex = (quickPickSelectedIndex - 1 + quickPickItems.length) % quickPickItems.length;
+        renderQuickPickDom();
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (quickPickItems[quickPickSelectedIndex]) {
+        modal.classList.add("hidden");
+        quickPickItems[quickPickSelectedIndex].action();
+      }
     }
   });
 }
@@ -807,18 +889,17 @@ function openQuickPick(isCommandMode: boolean) {
   modal.classList.remove("hidden");
   input.value = isCommandMode ? "> " : "";
   input.focus();
-  renderQuickPickItems(input.value);
+  quickPickSelectedIndex = 0;
+  fetchAndRenderQuickPick(input.value);
 
   input.oninput = () => {
-    renderQuickPickItems(input.value);
+    quickPickSelectedIndex = 0;
+    fetchAndRenderQuickPick(input.value);
   };
 }
 
-async function renderQuickPickItems(query: string) {
-  const list = document.getElementById("quickpick-list");
-  if (!list) return;
-
-  list.innerHTML = "";
+async function fetchAndRenderQuickPick(query: string) {
+  quickPickItems = [];
 
   const commands = [
     { title: "View: Split Editor Right (エディターを右に分割)", shortcut: "", id: "split_right" },
@@ -827,6 +908,7 @@ async function renderQuickPickItems(query: string) {
     { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
+    { title: "Git: Open SCM View (ソース管理を開く)", shortcut: "Ctrl+Shift+G", id: "open_scm" },
   ];
 
   if (query.startsWith(">")) {
@@ -834,14 +916,12 @@ async function renderQuickPickItems(query: string) {
     commands
       .filter((c) => !q || c.title.toLowerCase().includes(q))
       .forEach((c) => {
-        const item = document.createElement("div");
-        item.className = "quickpick-item";
-        item.innerHTML = `<span>${c.title}</span><span style="color: #888;">${c.shortcut}</span>`;
-        item.onclick = () => {
-          document.getElementById("quickpick-modal")?.classList.add("hidden");
-          executeCommand(c.id);
-        };
-        list.appendChild(item);
+        quickPickItems.push({
+          id: c.id,
+          title: c.title,
+          shortcut: c.shortcut,
+          action: () => executeCommand(c.id),
+        });
       });
   } else {
     try {
@@ -850,19 +930,43 @@ async function renderQuickPickItems(query: string) {
       files
         .filter((f) => !f.is_dir && (!q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)))
         .forEach((f) => {
-          const item = document.createElement("div");
-          item.className = "quickpick-item";
-          item.innerHTML = `<span>📄 ${f.name}</span><span style="color: #888;">${f.path}</span>`;
-          item.onclick = () => {
-            document.getElementById("quickpick-modal")?.classList.add("hidden");
-            openFile(f.path, f.name);
-          };
-          list.appendChild(item);
+          quickPickItems.push({
+            id: f.path,
+            title: `📄 ${f.name}`,
+            subtitle: f.path,
+            action: () => openFile(f.path, f.name),
+          });
         });
     } catch (e) {
       console.error(e);
     }
   }
+
+  renderQuickPickDom();
+}
+
+function renderQuickPickDom() {
+  const list = document.getElementById("quickpick-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  quickPickItems.forEach((item, idx) => {
+    const el = document.createElement("div");
+    el.className = `quickpick-item ${idx === quickPickSelectedIndex ? "selected" : ""}`;
+    el.innerHTML = `
+      <div>
+        <span>${item.title}</span>
+        ${item.subtitle ? `<span style="font-size: 11px; color: #888; margin-left: 8px;">${item.subtitle}</span>` : ""}
+      </div>
+      ${item.shortcut ? `<span style="color: #888; font-size: 11px;">${item.shortcut}</span>` : ""}
+    `;
+    el.onclick = () => {
+      document.getElementById("quickpick-modal")?.classList.add("hidden");
+      item.action();
+    };
+    list.appendChild(el);
+  });
 }
 
 function executeCommand(id: string) {
@@ -892,10 +996,13 @@ function executeCommand(id: string) {
         fitAddon?.fit();
       }
       break;
+    case "open_scm":
+      document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
+      break;
   }
 }
 
-// 14. Global Shortcuts & Status Bar
+// 17. Global Shortcuts & Status Bar
 function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "s") {

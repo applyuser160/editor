@@ -1,3 +1,4 @@
+use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::pty_manager::PtyState;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -30,6 +31,20 @@ pub struct SearchMatch {
 pub struct GitStatusResult {
     pub branch: String,
     pub changed_files: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn get_installed_extensions(
+    state: State<'_, ExtensionHostState>,
+) -> Result<Vec<ExtensionManifest>, String> {
+    Ok(state.list_extensions())
+}
+
+#[tauri::command]
+pub async fn start_extension_sidecar(
+    state: State<'_, ExtensionHostState>,
+) -> Result<String, String> {
+    state.start_sidecar()
 }
 
 #[tauri::command]

@@ -1,17 +1,31 @@
 pub mod commands;
+pub mod extension_host;
+pub mod file_watcher;
 pub mod pty_manager;
 
+use extension_host::ExtensionHostState;
+use file_watcher::FileWatcherManager;
 use pty_manager::PtyState;
 
 pub fn run() {
     let pty_state = PtyState::new();
+    let ext_state = ExtensionHostState::new();
 
     tauri::Builder::default()
         .manage(pty_state)
+        .manage(ext_state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .setup(|app| {
+            if let Ok(cur_dir) = std::env::current_dir() {
+                let _ = FileWatcherManager::start_watching(app.handle().clone(), &cur_dir);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            commands::get_installed_extensions,
+            commands::start_extension_sidecar,
             commands::spawn_pty,
             commands::write_pty,
             commands::resize_pty,
