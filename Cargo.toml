@@ -36,6 +36,7 @@ parking_lot = "0.12"
 pulldown-cmark = "0.12"
 regex = "1.10"
 uuid = { version = "1.10", features = ["v4", "serde"] }
+crossterm = "0.28"
 
 # Subcrate dependencies
 editor-core = { path = "crates/editor-core" }
