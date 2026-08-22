@@ -206,6 +206,29 @@ async function initLanguageServerIntegration() {
     // Go to Definition Provider (F12)
     monaco.languages.registerDefinitionProvider(lang, {
       provideDefinition: async (model, position) => {
+        const word = model.getWordAtPosition(position);
+        if (!word) return null;
+        const targetSymbol = word.word;
+
+        // 1. ALWAYS search in the current model first!
+        const currentMatches = model.findMatches(
+          `\\b(fn|let|struct|enum|trait|class|def|function|const|var|interface|type)\\s+${targetSymbol}\\b`,
+          false,
+          true,
+          false,
+          null,
+          true
+        );
+
+        if (currentMatches.length > 0) {
+          const match = currentMatches[0];
+          return {
+            uri: model.uri,
+            range: match.range,
+          };
+        }
+
+        // 2. Try LSP server if connected
         const uri = `file:///${model.uri.path}`;
         try {
           const res: any = await invoke("lsp_send_request", {
@@ -238,10 +261,7 @@ async function initLanguageServerIntegration() {
           // Fallback to workspace symbol search
         }
 
-        const word = model.getWordAtPosition(position);
-        if (!word) return null;
-        const targetSymbol = word.word;
-
+        // 3. Search other files in workspace
         try {
           const matches = await invoke<SearchMatch[]>("search_in_workspace", {
             query: targetSymbol,
@@ -443,6 +463,11 @@ fn main() {
     ...commonOptions,
     model: initialModel,
   });
+
+  editor1.onDidFocusEditorText(() => closeGlobalMenu());
+  editor2.onDidFocusEditorText(() => closeGlobalMenu());
+  editor1.onMouseDown(() => closeGlobalMenu());
+  editor2.onMouseDown(() => closeGlobalMenu());
 
   editor1.onDidChangeCursorPosition((e) => {
     const statusLineCol = document.getElementById("status-line-col");
@@ -768,7 +793,7 @@ function setupVSCodeMenus() {
         row.onclick = (e) => {
           e.stopPropagation();
           if (!hasSub) {
-            closeMenu();
+            closeGlobalMenu();
             if (item.action && !item.disabled) {
               item.action();
             }
@@ -810,7 +835,7 @@ function setupVSCodeMenus() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (isTopMenuOpen && currentOpenMenuKey === key) {
-        closeMenu();
+        closeGlobalMenu();
       } else {
         openMenu(key, btn);
       }
@@ -823,15 +848,37 @@ function setupVSCodeMenus() {
     });
   });
 
-  document.addEventListener("click", () => {
-    if (isTopMenuOpen) closeMenu();
-  });
+  // Capture-phase pointerdown to dismiss menus when clicking anywhere outside
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!isTopMenuOpen) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("#global-menu-dropdown") || target?.closest(".vs-dropdown") || target?.closest("#top-menu-bar")) {
+        return;
+      }
+      closeGlobalMenu();
+    },
+    true
+  );
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && isTopMenuOpen) {
-      closeMenu();
+      closeGlobalMenu();
     }
   });
+}
+
+function closeGlobalMenu() {
+  isTopMenuOpen = false;
+  currentOpenMenuKey = null;
+  const dropdownEl = document.getElementById("global-menu-dropdown");
+  dropdownEl?.classList.add("hidden");
+  document.querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn").forEach((b) => b.classList.remove("active"));
+  if (activeSubmenuEl) {
+    activeSubmenuEl.remove();
+    activeSubmenuEl = null;
+  }
 }
 
 function toggleTerminal(forceOpen?: boolean) {
@@ -1766,6 +1813,7 @@ function setupQuickPick() {
 }
 
 function openQuickPick(isCommandMode: boolean) {
+  closeGlobalMenu();
   const modal = document.getElementById("quickpick-modal");
   const input = document.getElementById("quickpick-input") as HTMLInputElement;
   if (!modal || !input) return;
