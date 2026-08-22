@@ -401,23 +401,43 @@ pub async fn get_file_stat(path: String) -> Result<FileStat, String> {
 }
 
 #[tauri::command]
-pub async fn search_in_workspace(query: String, case_sensitive: bool) -> Result<Vec<SearchMatch>, String> {
-    let q = if case_sensitive { query } else { query.to_lowercase() };
-    if q.trim().is_empty() {
+pub async fn search_in_workspace(
+    query: String,
+    case_sensitive: bool,
+    whole_word: bool,
+    is_regex: bool,
+) -> Result<Vec<SearchMatch>, String> {
+    if query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
+    let pattern_str = if is_regex {
+        query.clone()
+    } else {
+        regex::escape(&query)
+    };
+
+    let final_pattern = if whole_word {
+        format!(r"\b{}\b", pattern_str)
+    } else {
+        pattern_str
+    };
+
+    let re = regex::RegexBuilder::new(&final_pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| format!("Invalid regex: {}", e))?;
+
     let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut matches = Vec::new();
-    search_recursive(&current_dir, &current_dir, &q, case_sensitive, &mut matches, 5)?;
+    search_recursive_regex(&current_dir, &current_dir, &re, &mut matches, 20)?;
     Ok(matches)
 }
 
-fn search_recursive(
+fn search_recursive_regex(
     root: &Path,
     current: &Path,
-    query: &str,
-    case_sensitive: bool,
+    re: &regex::Regex,
     matches: &mut Vec<SearchMatch>,
     max_depth: usize,
 ) -> Result<(), String> {
@@ -430,30 +450,97 @@ fn search_recursive(
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" {
+        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
             continue;
         }
 
         if path.is_dir() {
-            search_recursive(root, &path, query, case_sensitive, matches, max_depth - 1)?;
+            search_recursive_regex(root, &path, re, matches, max_depth - 1)?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
             let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
             for (idx, line) in content.lines().enumerate() {
-                let target = if case_sensitive { line.to_string() } else { line.to_lowercase() };
-                if target.contains(query) {
+                if re.is_match(line) {
                     matches.push(SearchMatch {
                         file_path: relative_path.clone(),
                         line_number: idx + 1,
                         line_text: line.trim().to_string(),
                     });
-                    if matches.len() >= 100 {
+                    if matches.len() >= 1000 {
                         return Ok(());
                     }
                 }
             }
         }
     }
+    Ok(())
+}
 
+#[tauri::command]
+pub async fn replace_in_workspace(
+    query: String,
+    replace_text: String,
+    case_sensitive: bool,
+    whole_word: bool,
+    is_regex: bool,
+) -> Result<usize, String> {
+    if query.trim().is_empty() {
+        return Ok(0);
+    }
+
+    let pattern_str = if is_regex {
+        query.clone()
+    } else {
+        regex::escape(&query)
+    };
+
+    let final_pattern = if whole_word {
+        format!(r"\b{}\b", pattern_str)
+    } else {
+        pattern_str
+    };
+
+    let re = regex::RegexBuilder::new(&final_pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| format!("Invalid regex: {}", e))?;
+
+    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let mut total_replaced = 0;
+    replace_recursive_regex(&current_dir, &re, &replace_text, &mut total_replaced, 20)?;
+    Ok(total_replaced)
+}
+
+fn replace_recursive_regex(
+    current: &Path,
+    re: &regex::Regex,
+    replace_text: &str,
+    total_replaced: &mut usize,
+    max_depth: usize,
+) -> Result<(), String> {
+    if max_depth == 0 {
+        return Ok(());
+    }
+
+    let read_dir = std::fs::read_dir(current).map_err(|e| e.to_string())?;
+    for entry in read_dir.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
+            continue;
+        }
+
+        if path.is_dir() {
+            replace_recursive_regex(&path, re, replace_text, total_replaced, max_depth - 1)?;
+        } else if let Ok(content) = std::fs::read_to_string(&path) {
+            if re.is_match(&content) {
+                let replaced = re.replace_all(&content, replace_text).to_string();
+                let count = re.find_iter(&content).count();
+                *total_replaced += count;
+                let _ = std::fs::write(&path, replaced);
+            }
+        }
+    }
     Ok(())
 }
 

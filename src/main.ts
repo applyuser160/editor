@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import * as monaco from "monaco-editor";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -58,6 +59,15 @@ interface MenuItemDef {
   action?: () => void;
 }
 
+interface TerminalSession {
+  id: number;
+  ptyId: number;
+  title: string;
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  containerEl: HTMLElement;
+}
+
 // Global State
 let workspaceRoot = "";
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -68,9 +78,17 @@ let pane2FilePath: string | null = null;
 let isSplitActive = false;
 let splitOrientation: "horizontal" | "vertical" = "horizontal";
 
-let ptyId: number | null = null;
-let xtermInstance: Terminal | null = null;
-let fitAddon: FitAddon | null = null;
+let terminalSessions: TerminalSession[] = [];
+let activeTerminalSessionId: number | null = null;
+let nextTerminalId = 1;
+
+function getActiveTerminalSession(): TerminalSession | undefined {
+  return terminalSessions.find((s) => s.id === activeTerminalSessionId) || terminalSessions[0];
+}
+
+let searchCaseSensitive = false;
+let searchWholeWord = false;
+let searchIsRegex = false;
 
 let isTopMenuOpen = false;
 let currentOpenMenuKey: string | null = null;
@@ -130,12 +148,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   initLanguageServerIntegration();
   initMonacoEditors();
+  applyStoredSettings();
   setupVSCodeMenus();
   setupActivityBar();
   setupResizers();
   setupGridSplitters();
   setupIntegratedTerminal();
   setupBranchSwitcher();
+  setupStatusBarInteractions();
   setupQuickPick();
   setupShortcuts();
   setupFileActions();
@@ -764,9 +784,9 @@ function setupVSCodeMenus() {
         ],
       },
       { type: "separator" },
-      { label: "ファイルを開く...", shortcut: "Ctrl+O", action: () => openQuickPick(false) },
-      { label: "フォルダーを開く...", shortcut: "Ctrl+K Ctrl+O", action: () => loadWorkspaceFiles() },
-      { label: "ファイルでワークスペースを開く...", action: () => openQuickPick(false) },
+      { label: "ファイルを開く...", shortcut: "Ctrl+O", action: () => openNativeFileDialog() },
+      { label: "フォルダーを開く...", shortcut: "Ctrl+K Ctrl+O", action: () => openNativeFolderDialog() },
+      { label: "ファイルでワークスペースを開く...", action: () => openNativeFileDialog() },
       {
         label: "最近使用した項目を開く",
         submenu: [
@@ -777,11 +797,11 @@ function setupVSCodeMenus() {
       },
       { type: "separator" },
       { label: "フォルダーをワークスペースに追加...", action: () => document.getElementById("btn-new-folder")?.click() },
-      { label: "名前を付けてワークスペースを保存...", action: () => showStatusMessage("ワークスペースを保存しました") },
+      { label: "名前を付けてワークスペースを保存...", action: () => saveNativeFileDialog() },
       { label: "ワークスペースを複製", shortcut: "Ctrl+W Ctrl+A", action: () => showStatusMessage("ワークスペースを複製しました") },
       { type: "separator" },
       { label: "保存", shortcut: "Ctrl+S", action: () => saveActiveFile() },
-      { label: "名前を付けて保存...", shortcut: "Ctrl+Shift+S", action: () => saveActiveFile() },
+      { label: "名前を付けて保存...", shortcut: "Ctrl+Shift+S", action: () => saveNativeFileDialog() },
       { label: "すべて保存", shortcut: "Ctrl+K S", action: () => saveAllFiles() },
       { type: "separator" },
       {
@@ -877,7 +897,7 @@ function setupVSCodeMenus() {
 
     terminal: [
       { label: "新しいターミナル", shortcut: "Ctrl+Shift+`", action: () => toggleTerminal(true) },
-      { label: "ターミナルをクリア", action: () => xtermInstance?.clear() },
+      { label: "ターミナルをクリア", action: () => getActiveTerminalSession()?.terminal.clear() },
       { label: "ターミナル パネルの切り替え", shortcut: "Ctrl+J", action: () => toggleTerminal() },
     ],
 
@@ -983,9 +1003,79 @@ function setupVSCodeMenus() {
     true
   );
 
+  const menuKeys = ["file", "edit", "selection", "view", "go", "run", "terminal", "help"];
+
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isTopMenuOpen) {
+    if (e.key === "Alt" || e.key === "F10") {
+      e.preventDefault();
+      if (isTopMenuOpen) {
+        closeGlobalMenu();
+      } else {
+        const firstBtn = menuButtons[0];
+        if (firstBtn) {
+          const key = firstBtn.getAttribute("data-menu") || "file";
+          openMenu(key, firstBtn);
+        }
+      }
+      return;
+    }
+
+    if (!isTopMenuOpen) return;
+
+    if (e.key === "Escape") {
       closeGlobalMenu();
+      return;
+    }
+
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      const currentIdx = menuKeys.indexOf(currentOpenMenuKey || "file");
+      const nextIdx = (currentIdx + 1) % menuKeys.length;
+      const nextKey = menuKeys[nextIdx];
+      const nextBtn = Array.from(menuButtons).find((b) => b.getAttribute("data-menu") === nextKey);
+      if (nextBtn) openMenu(nextKey, nextBtn);
+      return;
+    }
+
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      const currentIdx = menuKeys.indexOf(currentOpenMenuKey || "file");
+      const prevIdx = (currentIdx - 1 + menuKeys.length) % menuKeys.length;
+      const prevKey = menuKeys[prevIdx];
+      const prevBtn = Array.from(menuButtons).find((b) => b.getAttribute("data-menu") === prevKey);
+      if (prevBtn) openMenu(prevKey, prevBtn);
+      return;
+    }
+
+    const items = dropdownEl?.querySelectorAll<HTMLElement>(".menu-dropdown-item:not(.disabled)");
+    if (!items || items.length === 0) return;
+
+    const focused = Array.from(items).findIndex((el) => el.classList.contains("focused"));
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items.forEach((el) => el.classList.remove("focused"));
+      const next = focused === -1 ? 0 : (focused + 1) % items.length;
+      items[next].classList.add("focused");
+      items[next].scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items.forEach((el) => el.classList.remove("focused"));
+      const prev = focused === -1 ? items.length - 1 : (focused - 1 + items.length) % items.length;
+      items[prev].classList.add("focused");
+      items[prev].scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (focused !== -1 && items[focused]) {
+        items[focused].click();
+      }
+      return;
     }
   });
 }
@@ -1011,7 +1101,7 @@ function toggleTerminal(forceOpen?: boolean) {
     panelPart.style.display = isTerminalVisible ? "flex" : "none";
     editor1?.layout();
     editor2?.layout();
-    fitAddon?.fit();
+    getActiveTerminalSession()?.fitAddon.fit();
   }
 }
 
@@ -1147,14 +1237,39 @@ function setupGridSplitters() {
   }
 }
 
-// 6. Integrated Real-time Terminal (xterm.js + Portable-PTY)
+// 6. Integrated Real-time Terminal (Multiple Sessions)
 async function setupIntegratedTerminal() {
+  const btnAdd = document.getElementById("btn-add-terminal");
+  const btnKill = document.getElementById("btn-kill-terminal");
+
+  btnAdd?.addEventListener("click", () => createNewTerminalSession());
+  btnKill?.addEventListener("click", () => {
+    if (activeTerminalSessionId !== null) {
+      killTerminalSession(activeTerminalSessionId);
+    }
+  });
+
+  await createNewTerminalSession();
+
+  window.addEventListener("resize", () => {
+    const active = terminalSessions.find((s) => s.id === activeTerminalSessionId);
+    active?.fitAddon.fit();
+  });
+}
+
+async function createNewTerminalSession() {
   const container = document.getElementById("terminal-container");
+  const tabsContainer = document.getElementById("terminal-session-tabs");
   if (!container) return;
 
-  container.innerHTML = "";
+  const sessionId = nextTerminalId++;
+  const sessionDiv = document.createElement("div");
+  sessionDiv.id = `terminal-instance-${sessionId}`;
+  sessionDiv.style.width = "100%";
+  sessionDiv.style.height = "100%";
+  container.appendChild(sessionDiv);
 
-  xtermInstance = new Terminal({
+  const term = new Terminal({
     theme: {
       background: "#181818",
       foreground: "#cccccc",
@@ -1175,42 +1290,89 @@ async function setupIntegratedTerminal() {
     cursorBlink: true,
   });
 
-  fitAddon = new FitAddon();
-  xtermInstance.loadAddon(fitAddon);
-  xtermInstance.open(container);
-
-  setTimeout(() => {
-    fitAddon?.fit();
-  }, 100);
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+  term.open(sessionDiv);
 
   try {
-    const cols = xtermInstance.cols || 80;
-    const rows = xtermInstance.rows || 24;
+    const cols = term.cols || 80;
+    const rows = term.rows || 24;
+    const currentPtyId = await invoke<number>("spawn_pty", { cols, rows });
 
-    ptyId = await invoke<number>("spawn_pty", { cols, rows });
-
-    await listen<string>(`pty-data-${ptyId}`, (event) => {
-      xtermInstance?.write(event.payload);
+    await listen<string>(`pty-data-${currentPtyId}`, (event) => {
+      term.write(event.payload);
     });
 
-    xtermInstance.onData((data) => {
-      if (ptyId !== null) {
-        invoke("write_pty", { id: ptyId, data });
-      }
+    term.onData((data) => {
+      invoke("write_pty", { id: currentPtyId, data });
     });
 
-    xtermInstance.onResize((size) => {
-      if (ptyId !== null) {
-        invoke("resize_pty", { id: ptyId, cols: size.cols, rows: size.rows });
-      }
+    term.onResize((size) => {
+      invoke("resize_pty", { id: currentPtyId, cols: size.cols, rows: size.rows });
     });
 
-    window.addEventListener("resize", () => {
-      fitAddon?.fit();
-    });
+    const session: TerminalSession = {
+      id: sessionId,
+      ptyId: currentPtyId,
+      title: `${sessionId}: powershell`,
+      terminal: term,
+      fitAddon: fit,
+      containerEl: sessionDiv,
+    };
+
+    terminalSessions.push(session);
+    switchTerminalSession(sessionId);
   } catch (err) {
-    xtermInstance.writeln(`\x1b[31mFailed to spawn PTY: ${err}\x1b[0m`);
+    term.writeln(`\x1b[31mFailed to spawn PTY: ${err}\x1b[0m`);
   }
+}
+
+function switchTerminalSession(sessionId: number) {
+  activeTerminalSessionId = sessionId;
+  terminalSessions.forEach((s) => {
+    if (s.id === sessionId) {
+      s.containerEl.style.display = "block";
+      setTimeout(() => s.fitAddon.fit(), 50);
+      s.terminal.focus();
+    } else {
+      s.containerEl.style.display = "none";
+    }
+  });
+
+  renderTerminalSessionTabs();
+}
+
+function killTerminalSession(sessionId: number) {
+  const idx = terminalSessions.findIndex((s) => s.id === sessionId);
+  if (idx === -1) return;
+
+  const session = terminalSessions[idx];
+  session.terminal.dispose();
+  session.containerEl.remove();
+  terminalSessions.splice(idx, 1);
+
+  if (terminalSessions.length > 0) {
+    const nextSession = terminalSessions[Math.min(idx, terminalSessions.length - 1)];
+    switchTerminalSession(nextSession.id);
+  } else {
+    activeTerminalSessionId = null;
+    renderTerminalSessionTabs();
+    createNewTerminalSession();
+  }
+}
+
+function renderTerminalSessionTabs() {
+  const tabsContainer = document.getElementById("terminal-session-tabs");
+  if (!tabsContainer) return;
+
+  tabsContainer.innerHTML = "";
+  terminalSessions.forEach((s) => {
+    const tabEl = document.createElement("span");
+    tabEl.className = `terminal-tab ${s.id === activeTerminalSessionId ? "active" : ""}`;
+    tabEl.textContent = s.title;
+    tabEl.onclick = () => switchTerminalSession(s.id);
+    tabsContainer.appendChild(tabEl);
+  });
 }
 
 // 7. File Watcher Real-time Sync
@@ -1483,10 +1645,18 @@ function updateBreadcrumbs(filePath: string | null) {
   parts.forEach((part, index) => {
     const isLast = index === parts.length - 1;
     const itemEl = document.createElement("span");
-    itemEl.className = `breadcrumb-item ${isLast ? "active-file" : "folder"}`;
+    itemEl.className = `breadcrumb-item clickable ${isLast ? "active-file" : "folder"}`;
     
     const icon = isLast ? getFileIcon(part) : "📁";
     itemEl.innerHTML = `<span class="breadcrumb-icon">${icon}</span> <span>${part}</span>`;
+    
+    // Build path up to this segment
+    const segmentPath = parts.slice(0, index + 1).join("/");
+    itemEl.onclick = (e) => {
+      e.stopPropagation();
+      showBreadcrumbPicker(segmentPath, isLast, e.clientX, e.clientY);
+    };
+
     breadcrumbEl.appendChild(itemEl);
 
     if (!isLast) {
@@ -1499,6 +1669,50 @@ function updateBreadcrumbs(filePath: string | null) {
 
   const fileName = parts[parts.length - 1] || "Oxide Editor";
   document.title = `${fileName} - Oxide Editor`;
+}
+
+async function showBreadcrumbPicker(targetPath: string, isFile: boolean, x: number, y: number) {
+  const dropdown = document.getElementById("global-menu-dropdown");
+  if (!dropdown) return;
+
+  // If clicking on a file, show sibling files in same parent dir
+  const dirPath = isFile ? targetPath.substring(0, targetPath.lastIndexOf("/")) : targetPath;
+
+  try {
+    const allFiles = await invoke<FileEntry[]>("list_workspace_files");
+    const normalizedDir = normalizePath(dirPath);
+    
+    // Filter files and direct subfolders in this directory
+    const siblings = allFiles.filter((f) => {
+      const p = normalizePath(f.path);
+      const parent = p.substring(0, p.lastIndexOf("/"));
+      return parent === normalizedDir || (!normalizedDir && !p.includes("/"));
+    });
+
+    dropdown.innerHTML = "";
+    dropdown.className = "vs-dropdown";
+    dropdown.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+    dropdown.style.top = `${Math.min(y + 12, window.innerHeight - 300)}px`;
+    dropdown.classList.remove("hidden");
+    isTopMenuOpen = true;
+
+    const items: MenuItemDef[] = siblings.map((s) => ({
+      label: `${s.is_dir ? "📁" : getFileIcon(s.name)} ${s.name}`,
+      action: () => {
+        if (!s.is_dir) {
+          openFile(s.path, s.name);
+        }
+      },
+    }));
+
+    if (items.length === 0) {
+      items.push({ label: "(項目なし)", disabled: true });
+    }
+
+    renderMenuLevel(items, dropdown);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 // 11. Tab Bar Rendering & Context Menu
@@ -1737,7 +1951,7 @@ function toggleSidebar(forceOpen?: boolean) {
   sidebar.style.display = isSidebarVisible ? "flex" : "none";
   editor1?.layout();
   editor2?.layout();
-  fitAddon?.fit();
+  getActiveTerminalSession()?.fitAddon.fit();
 }
 
 async function updateSidebarView(view: string) {
@@ -1754,9 +1968,23 @@ async function updateSidebarView(view: string) {
     case "search":
       titleEl.textContent = "検索 (SEARCH)";
       contentEl.innerHTML = `
-        <div style="padding: 4px;">
-          <input type="text" id="global-search-input" placeholder="検索語を入力して Enter..." style="width: 100%; padding: 6px 8px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; font-size: 12px;" />
-          <div id="search-results-list" style="margin-top: 8px; max-height: calc(100vh - 160px); overflow-y: auto;"></div>
+        <div class="search-input-container">
+          <div class="search-row">
+            <input type="text" id="global-search-input" placeholder="検索 (Search)..." />
+            <div class="search-toggles">
+              <button id="toggle-case" class="search-toggle-btn ${searchCaseSensitive ? "active" : ""}" title="大文字と小文字を区別 (Alt+C)">Aa</button>
+              <button id="toggle-word" class="search-toggle-btn ${searchWholeWord ? "active" : ""}" title="単語全体に一致 (Alt+W)">\\b</button>
+              <button id="toggle-regex" class="search-toggle-btn ${searchIsRegex ? "active" : ""}" title="正規表現を使用 (Alt+R)">.*</button>
+            </div>
+          </div>
+          <div class="search-row">
+            <input type="text" id="global-replace-input" placeholder="置換 (Replace)..." />
+          </div>
+          <div class="search-actions-row">
+            <button id="btn-search-exec" class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;">検索</button>
+            <button id="btn-replace-all" class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;">すべて置換</button>
+          </div>
+          <div id="search-results-list" style="margin-top: 8px; max-height: calc(100vh - 240px); overflow-y: auto;"></div>
         </div>
       `;
       setupSearchInput();
@@ -1774,23 +2002,32 @@ async function updateSidebarView(view: string) {
 
     case "settings":
       titleEl.textContent = "設定 (SETTINGS)";
+      const savedTheme = localStorage.getItem("oxide_theme") || "vscode-dark-plus";
+      const savedFontSize = localStorage.getItem("oxide_fontSize") || "14";
+      const savedTabSize = localStorage.getItem("oxide_tabSize") || "4";
+      const savedMinimap = localStorage.getItem("oxide_minimap") !== "false";
+
       contentEl.innerHTML = `
         <div style="padding: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 12px;">
           <div>
             <label style="display: block; margin-bottom: 4px; color: #aaa;">カラーテーマ (Theme):</label>
             <select id="theme-selector" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;">
-              <option value="vscode-dark-plus">VS Code Dark+</option>
-              <option value="vs">VS Code Light</option>
-              <option value="hc-black">High Contrast</option>
+              <option value="vscode-dark-plus" ${savedTheme === "vscode-dark-plus" ? "selected" : ""}>VS Code Dark+</option>
+              <option value="vs" ${savedTheme === "vs" ? "selected" : ""}>VS Code Light</option>
+              <option value="hc-black" ${savedTheme === "hc-black" ? "selected" : ""}>High Contrast</option>
             </select>
           </div>
           <div>
             <label style="display: block; margin-bottom: 4px; color: #aaa;">フォントサイズ (Font Size):</label>
-            <input type="number" id="font-size-input" value="14" min="10" max="28" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
+            <input type="number" id="font-size-input" value="${savedFontSize}" min="10" max="28" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
           </div>
           <div>
             <label style="display: block; margin-bottom: 4px; color: #aaa;">タブサイズ (Tab Size):</label>
-            <input type="number" id="tab-size-input" value="4" min="2" max="8" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
+            <input type="number" id="tab-size-input" value="${savedTabSize}" min="2" max="8" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="minimap-checkbox" ${savedMinimap ? "checked" : ""} />
+            <label for="minimap-checkbox" style="color: #aaa; cursor: pointer;">ミニマップを表示 (Minimap)</label>
           </div>
         </div>
       `;
@@ -1917,45 +2154,182 @@ async function renderExtensionsView(container: HTMLElement) {
 // 14. Search Feature Integration
 function setupSearchInput() {
   const input = document.getElementById("global-search-input") as HTMLInputElement;
+  const replaceInput = document.getElementById("global-replace-input") as HTMLInputElement;
   const list = document.getElementById("search-results-list");
+  const toggleCase = document.getElementById("toggle-case");
+  const toggleWord = document.getElementById("toggle-word");
+  const toggleRegex = document.getElementById("toggle-regex");
+  const btnSearch = document.getElementById("btn-search-exec");
+  const btnReplaceAll = document.getElementById("btn-replace-all");
+
   if (!input || !list) return;
 
-  input.addEventListener("keydown", async (e) => {
-    if (e.key === "Enter") {
-      const q = input.value.trim();
-      if (!q) return;
+  const runSearch = async () => {
+    const q = input.value.trim();
+    if (!q) {
+      list.innerHTML = "";
+      return;
+    }
 
-      list.innerHTML = `<div style="color: #888; font-size: 11px;">検索中...</div>`;
+    list.innerHTML = `<div style="color: #888; font-size: 11px;">検索中...</div>`;
+    try {
+      const matches = await invoke<SearchMatch[]>("search_in_workspace", {
+        query: q,
+        caseSensitive: searchCaseSensitive,
+        wholeWord: searchWholeWord,
+        isRegex: searchIsRegex,
+      });
+      list.innerHTML = "";
+
+      if (matches.length === 0) {
+        list.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">一致する結果は見つかりませんでした</div>`;
+        return;
+      }
+
+      list.innerHTML = `<div style="color: #aaa; font-size: 11px; margin-bottom: 4px;">${matches.length} 件の一致:</div>`;
+
+      matches.forEach((m) => {
+        const item = document.createElement("div");
+        item.className = "search-result-item";
+        item.innerHTML = `
+          <div class="search-file-title">📄 ${m.file_path}:${m.line_number}</div>
+          <div class="search-match-line">${escapeHtml(m.line_text)}</div>
+        `;
+        item.onclick = async () => {
+          await openFile(m.file_path, m.file_path.split("/").pop() || m.file_path);
+          if (editor1) {
+            editor1.revealLineInCenter(m.line_number);
+            editor1.setPosition({ lineNumber: m.line_number, column: 1 });
+          }
+        };
+        list.appendChild(item);
+      });
+    } catch (err) {
+      list.innerHTML = `<div style="color: #ff5555; font-size: 11px;">検索エラー: ${err}</div>`;
+    }
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runSearch();
+  });
+  btnSearch?.addEventListener("click", () => runSearch());
+
+  toggleCase?.addEventListener("click", () => {
+    searchCaseSensitive = !searchCaseSensitive;
+    toggleCase.classList.toggle("active", searchCaseSensitive);
+    runSearch();
+  });
+
+  toggleWord?.addEventListener("click", () => {
+    searchWholeWord = !searchWholeWord;
+    toggleWord.classList.toggle("active", searchWholeWord);
+    runSearch();
+  });
+
+  toggleRegex?.addEventListener("click", () => {
+    searchIsRegex = !searchIsRegex;
+    toggleRegex.classList.toggle("active", searchIsRegex);
+    runSearch();
+  });
+
+  btnReplaceAll?.addEventListener("click", async () => {
+    const q = input.value.trim();
+    const rep = replaceInput ? replaceInput.value : "";
+    if (!q) return;
+
+    if (confirm(`ワークスペース全体で '${q}' を '${rep}' に置換しますか？`)) {
       try {
-        const matches = await invoke<SearchMatch[]>("search_in_workspace", { query: q, caseSensitive: false });
-        list.innerHTML = "";
-
-        if (matches.length === 0) {
-          list.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">一致する結果は見つかりませんでした</div>`;
-          return;
-        }
-
-        matches.forEach((m) => {
-          const item = document.createElement("div");
-          item.className = "search-result-item";
-          item.innerHTML = `
-            <div class="search-file-title">📄 ${m.file_path}:${m.line_number}</div>
-            <div class="search-match-line">${escapeHtml(m.line_text)}</div>
-          `;
-          item.onclick = async () => {
-            await openFile(m.file_path, m.file_path.split("/").pop() || m.file_path);
-            if (editor1) {
-              editor1.revealLineInCenter(m.line_number);
-              editor1.setPosition({ lineNumber: m.line_number, column: 1 });
-            }
-          };
-          list.appendChild(item);
+        const count = await invoke<number>("replace_in_workspace", {
+          query: q,
+          replaceText: rep,
+          caseSensitive: searchCaseSensitive,
+          wholeWord: searchWholeWord,
+          isRegex: searchIsRegex,
         });
-      } catch (err) {
-        list.innerHTML = `<div style="color: #ff5555; font-size: 11px;">検索エラー: ${err}</div>`;
+        showStatusMessage(`一括置換完了: ${count} 箇所を置換しました`);
+        await loadWorkspaceFiles();
+        runSearch();
+      } catch (e) {
+        alert(`置換エラー: ${e}`);
       }
     }
   });
+}
+
+function setupSettingsHandlers() {
+  const themeSelector = document.getElementById("theme-selector") as HTMLSelectElement;
+  const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
+  const tabSizeInput = document.getElementById("tab-size-input") as HTMLInputElement;
+  const minimapCheckbox = document.getElementById("minimap-checkbox") as HTMLInputElement;
+
+  if (themeSelector) {
+    themeSelector.onchange = () => {
+      const theme = themeSelector.value;
+      monaco.editor.setTheme(theme);
+      localStorage.setItem("oxide_theme", theme);
+    };
+  }
+
+  if (fontSizeInput) {
+    fontSizeInput.onchange = () => {
+      const sz = parseInt(fontSizeInput.value, 10);
+      if (sz >= 10 && sz <= 28) {
+        editor1?.updateOptions({ fontSize: sz });
+        editor2?.updateOptions({ fontSize: sz });
+        localStorage.setItem("oxide_fontSize", sz.toString());
+      }
+    };
+  }
+
+  if (tabSizeInput) {
+    tabSizeInput.onchange = () => {
+      const sz = parseInt(tabSizeInput.value, 10);
+      if (sz >= 2 && sz <= 8) {
+        editor1?.updateOptions({ tabSize: sz });
+        editor2?.updateOptions({ tabSize: sz });
+        localStorage.setItem("oxide_tabSize", sz.toString());
+        const statusIndent = document.getElementById("status-indent");
+        if (statusIndent) statusIndent.textContent = `スペース: ${sz}`;
+      }
+    };
+  }
+
+  if (minimapCheckbox) {
+    minimapCheckbox.onchange = () => {
+      const enabled = minimapCheckbox.checked;
+      editor1?.updateOptions({ minimap: { enabled } });
+      editor2?.updateOptions({ minimap: { enabled } });
+      localStorage.setItem("oxide_minimap", enabled ? "true" : "false");
+    };
+  }
+}
+
+function applyStoredSettings() {
+  const savedTheme = localStorage.getItem("oxide_theme");
+  if (savedTheme) monaco.editor.setTheme(savedTheme);
+
+  const savedFontSize = localStorage.getItem("oxide_fontSize");
+  if (savedFontSize) {
+    const sz = parseInt(savedFontSize, 10);
+    editor1?.updateOptions({ fontSize: sz });
+    editor2?.updateOptions({ fontSize: sz });
+  }
+
+  const savedTabSize = localStorage.getItem("oxide_tabSize");
+  if (savedTabSize) {
+    const sz = parseInt(savedTabSize, 10);
+    editor1?.updateOptions({ tabSize: sz });
+    editor2?.updateOptions({ tabSize: sz });
+    const statusIndent = document.getElementById("status-indent");
+    if (statusIndent) statusIndent.textContent = `スペース: ${sz}`;
+  }
+
+  const savedMinimap = localStorage.getItem("oxide_minimap");
+  if (savedMinimap !== null) {
+    const enabled = savedMinimap !== "false";
+    editor1?.updateOptions({ minimap: { enabled } });
+    editor2?.updateOptions({ minimap: { enabled } });
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -2017,26 +2391,8 @@ async function renderScmView(container: HTMLElement) {
   }
 }
 
-// 16. Settings Handlers
-function setupSettingsHandlers() {
-  const themeSel = document.getElementById("theme-selector") as HTMLSelectElement;
-  const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
-
-  if (themeSel) {
-    themeSel.onchange = () => {
-      monaco.editor.setTheme(themeSel.value);
-    };
-  }
-
-  if (fontSizeInput) {
-    fontSizeInput.onchange = () => {
-      const sz = parseInt(fontSizeInput.value, 10);
-      if (sz >= 10 && sz <= 28) {
-        editor1?.updateOptions({ fontSize: sz });
-        editor2?.updateOptions({ fontSize: sz });
-      }
-    };
-  }
+function formatCurrentDocument() {
+  editor1?.getAction("editor.action.formatDocument")?.run();
 }
 
 // 17. Workspace File Tree Loading & Actions
@@ -2322,7 +2678,7 @@ function setupResizers() {
       sidebar.style.width = `${newWidth}px`;
       editor1?.layout();
       editor2?.layout();
-      fitAddon?.fit();
+      getActiveTerminalSession()?.fitAddon.fit();
     });
 
     window.addEventListener("mouseup", () => {
@@ -2350,7 +2706,7 @@ function setupResizers() {
       panelPart.style.height = `${newHeight}px`;
       editor1?.layout();
       editor2?.layout();
-      fitAddon?.fit();
+      getActiveTerminalSession()?.fitAddon.fit();
     });
 
     window.addEventListener("mouseup", () => {
@@ -2478,15 +2834,29 @@ async function fetchAndRenderQuickPick(query: string) {
   const commands = [
     { title: "View: Split Editor Right (エディターを右に分割)", shortcut: "", id: "split_right" },
     { title: "View: Split Editor Down (エディターを下に分割)", shortcut: "", id: "split_down" },
+    { title: "View: Close Split Editor (分割を閉じる)", shortcut: "", id: "close_split" },
     { title: "File: Save (ファイルの保存)", shortcut: "Ctrl+S", id: "save" },
+    { title: "File: Save All (すべて保存)", shortcut: "Ctrl+K S", id: "save_all" },
     { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
+    { title: "File: Open File Dialog (ネイティブファイルを開く)", shortcut: "Ctrl+O", id: "open_file_dialog" },
+    { title: "File: Open Folder Dialog (ネイティブフォルダーを開く)", shortcut: "Ctrl+K Ctrl+O", id: "open_folder_dialog" },
+    { title: "File: Save As Dialog (名前を付けて保存)", shortcut: "Ctrl+Shift+S", id: "save_as_dialog" },
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
+    { title: "Terminal: New Terminal (新規ターミナル作成)", shortcut: "Ctrl+Shift+`", id: "new_terminal" },
     { title: "Git: Open SCM View (ソース管理を開く)", shortcut: "Ctrl+Shift+G", id: "open_scm" },
     { title: "Git: Switch Branch (ブランチ切り替え)", shortcut: "", id: "switch_branch" },
+    { title: "View: Show Explorer (エクスプローラーを開く)", shortcut: "Ctrl+Shift+E", id: "open_explorer" },
+    { title: "View: Show Search (検索を開く)", shortcut: "Ctrl+Shift+F", id: "open_search" },
+    { title: "View: Show Extensions (拡張機能を開く)", shortcut: "Ctrl+Shift+X", id: "open_extensions" },
+    { title: "Preferences: Open Settings (設定を開く)", shortcut: "Ctrl+,", id: "open_settings" },
+    { title: "Editor: Go to Definition (定義へ移動)", shortcut: "F12", id: "goto_def" },
+    { title: "Editor: Format Document (ドキュメントのフォーマット)", shortcut: "Shift+Alt+F", id: "format_doc" },
+    { title: "Editor: Close Active Tab (タブを閉じる)", shortcut: "Ctrl+W", id: "close_tab" },
   ];
 
   if (query.startsWith(">")) {
+    // 1. Command Mode (">")
     const q = query.slice(1).trim().toLowerCase();
     commands
       .filter((c) => !q || c.title.toLowerCase().includes(q))
@@ -2498,7 +2868,63 @@ async function fetchAndRenderQuickPick(query: string) {
           action: () => executeCommand(c.id),
         });
       });
+  } else if (query.startsWith(":")) {
+    // 2. Go to Line Mode (":")
+    const lineNumStr = query.slice(1).trim();
+    const lineNum = parseInt(lineNumStr, 10);
+    if (!isNaN(lineNum) && lineNum > 0) {
+      quickPickItems.push({
+        id: `line_${lineNum}`,
+        title: `📍 行 ${lineNum} へ移動`,
+        action: () => {
+          if (editor1) {
+            editor1.revealLineInCenter(lineNum);
+            editor1.setPosition({ lineNumber: lineNum, column: 1 });
+          }
+        },
+      });
+    } else {
+      quickPickItems.push({
+        id: "line_hint",
+        title: "行番号を入力してください (例: :42)",
+        action: () => {},
+      });
+    }
+  } else if (query.startsWith("@")) {
+    // 3. Document Symbol Mode ("@")
+    const symQuery = query.slice(1).trim().toLowerCase();
+    if (activeFilePath && openTabs.has(activeFilePath)) {
+      const model = openTabs.get(activeFilePath)!.model;
+      const text = model.getValue();
+      const lines = text.split("\n");
+      const symRegex = /^\s*(fn|function|pub fn|class|struct|enum|interface|type|const|let|var|def)\s+([A-Za-z0-9_]+)/;
+      
+      lines.forEach((line, idx) => {
+        const m = line.match(symRegex);
+        if (m) {
+          const kind = m[1];
+          const name = m[2];
+          if (!symQuery || name.toLowerCase().includes(symQuery)) {
+            quickPickItems.push({
+              id: `sym_${idx}`,
+              title: `🔹 ${name} (${kind})`,
+              subtitle: `行 ${idx + 1}: ${line.trim()}`,
+              action: () => {
+                if (editor1) {
+                  editor1.revealLineInCenter(idx + 1);
+                  editor1.setPosition({ lineNumber: idx + 1, column: 1 });
+                }
+              },
+            });
+          }
+        }
+      });
+      if (quickPickItems.length === 0) {
+        quickPickItems.push({ id: "no_sym", title: "シンボルが見つかりませんでした", action: () => {} });
+      }
+    }
   } else {
+    // 4. File Search Mode (No prefix)
     try {
       const files = await invoke<FileEntry[]>("list_workspace_files");
       const q = query.trim().toLowerCase();
@@ -2552,11 +2978,26 @@ function executeCommand(id: string) {
     case "split_down":
       document.getElementById("btn-split-down")?.click();
       break;
+    case "close_split":
+      document.getElementById("btn-close-split")?.click();
+      break;
     case "save":
       saveActiveFile();
       break;
+    case "save_all":
+      saveAllFiles();
+      break;
     case "new_file":
       document.getElementById("btn-new-file")?.click();
+      break;
+    case "open_file_dialog":
+      openNativeFileDialog();
+      break;
+    case "open_folder_dialog":
+      openNativeFolderDialog();
+      break;
+    case "save_as_dialog":
+      saveNativeFileDialog();
       break;
     case "toggle_sidebar":
       toggleSidebar();
@@ -2564,13 +3005,159 @@ function executeCommand(id: string) {
     case "toggle_terminal":
       toggleTerminal();
       break;
+    case "new_terminal":
+      createNewTerminalSession();
+      toggleTerminal(true);
+      break;
     case "open_scm":
       document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
       break;
     case "switch_branch":
       document.getElementById("status-branch")?.click();
       break;
+    case "open_explorer":
+      document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
+      break;
+    case "open_search":
+      document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
+      break;
+    case "open_extensions":
+      document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+      break;
+    case "open_settings":
+      document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+      break;
+    case "goto_def":
+      performGoToDefinition();
+      break;
+    case "format_doc":
+      formatCurrentDocument();
+      break;
+    case "close_tab":
+      if (activeFilePath) closeTab(activeFilePath);
+      break;
   }
+}
+
+// Native Dialog Helpers (Issue #15)
+async function openNativeFileDialog() {
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      directory: false,
+    });
+    if (selected) {
+      const p = typeof selected === "string" ? selected : selected;
+      const name = p.split(/[\\/]/).pop() || p;
+      await openFile(p, name);
+    }
+  } catch (e) {
+    console.error("Open file dialog error:", e);
+  }
+}
+
+async function openNativeFolderDialog() {
+  try {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+    });
+    if (selected && typeof selected === "string") {
+      showStatusMessage(`フォルダーを開きました: ${selected}`);
+      await loadWorkspaceFiles();
+    }
+  } catch (e) {
+    console.error("Open folder dialog error:", e);
+  }
+}
+
+async function saveNativeFileDialog() {
+  if (!activeFilePath || !openTabs.has(activeFilePath)) return;
+  const tab = openTabs.get(activeFilePath)!;
+  try {
+    const savePath = await saveDialog({
+      defaultPath: tab.name,
+    });
+    if (savePath) {
+      await invoke("write_file_content", { path: savePath, content: tab.model.getValue() });
+      tab.isDirty = false;
+      updateTabBar();
+      showStatusMessage(`保存完了: ${savePath}`);
+      await loadWorkspaceFiles();
+    }
+  } catch (e) {
+    console.error("Save as dialog error:", e);
+  }
+}
+
+// Interactive Status Bar (Issue #17)
+function setupStatusBarInteractions() {
+  const statusLanguage = document.getElementById("status-language");
+  const statusIndent = document.getElementById("status-indent");
+  const statusEncoding = document.getElementById("status-encoding");
+  const statusEol = document.getElementById("status-eol");
+  const statusLineCol = document.getElementById("status-line-col");
+  const statusProblems = document.getElementById("status-problems");
+
+  statusLanguage?.addEventListener("click", () => {
+    quickPickItems = [
+      "rust", "typescript", "javascript", "python", "go", "html", "css", "json", "markdown", "plaintext"
+    ].map((lang) => ({
+      id: lang,
+      title: lang.toUpperCase(),
+      action: () => {
+        if (activeFilePath && openTabs.has(activeFilePath)) {
+          const tab = openTabs.get(activeFilePath)!;
+          monaco.editor.setModelLanguage(tab.model, lang);
+          updateStatusBar(activeFilePath);
+        }
+      },
+    }));
+    openQuickPick(false);
+    renderQuickPickDom();
+  });
+
+  statusIndent?.addEventListener("click", () => {
+    quickPickItems = [
+      { id: "s2", title: "インデント: スペース 2", action: () => { editor1?.updateOptions({ tabSize: 2 }); if (statusIndent) statusIndent.textContent = "スペース: 2"; } },
+      { id: "s4", title: "インデント: スペース 4", action: () => { editor1?.updateOptions({ tabSize: 4 }); if (statusIndent) statusIndent.textContent = "スペース: 4"; } },
+      { id: "t4", title: "インデント: タブ 4", action: () => { editor1?.updateOptions({ tabSize: 4, insertSpaces: false }); if (statusIndent) statusIndent.textContent = "タブ: 4"; } },
+    ];
+    openQuickPick(false);
+    renderQuickPickDom();
+  });
+
+  statusEncoding?.addEventListener("click", () => {
+    quickPickItems = [
+      { id: "utf8", title: "UTF-8 (エンコード付きで再度開く)", action: () => showStatusMessage("エンコーディング: UTF-8") },
+      { id: "sjis", title: "Shift-JIS", action: () => showStatusMessage("エンコーディング: Shift-JIS") },
+      { id: "euc", title: "EUC-JP", action: () => showStatusMessage("エンコーディング: EUC-JP") },
+    ];
+    openQuickPick(false);
+    renderQuickPickDom();
+  });
+
+  statusEol?.addEventListener("click", () => {
+    quickPickItems = [
+      { id: "crlf", title: "CRLF (\\r\\n)", action: () => { if (statusEol) statusEol.textContent = "CRLF"; } },
+      { id: "lf", title: "LF (\\n)", action: () => { if (statusEol) statusEol.textContent = "LF"; } },
+    ];
+    openQuickPick(false);
+    renderQuickPickDom();
+  });
+
+  statusLineCol?.addEventListener("click", () => {
+    openQuickPick(false);
+    const input = document.getElementById("quickpick-input") as HTMLInputElement;
+    if (input) {
+      input.value = ":";
+      fetchAndRenderQuickPick(":");
+    }
+  });
+
+  statusProblems?.addEventListener("click", () => {
+    toggleTerminal(true);
+  });
 }
 
 // 20. Global Shortcuts & Status Bar

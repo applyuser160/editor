@@ -97,10 +97,17 @@
       <!-- Bottom Panel (Terminal) -->
       <section id="panel-part">
         <div class="panel-header">
-          <span class="panel-tab active">💻 ターミナル (TERMINAL)</span>
-          <span class="panel-tab">出力 (OUTPUT)</span>
-          <span class="panel-tab">問題 (PROBLEMS)</span>
-          <button id="btn-close-panel" title="パネルを閉じる">×</button>
+          <div class="panel-header-tabs">
+            <span class="panel-tab active" id="panel-tab-terminal">💻 ターミナル</span>
+            <span class="panel-tab" id="panel-tab-output">出力</span>
+            <span class="panel-tab" id="panel-tab-problems">問題</span>
+          </div>
+          <div class="panel-header-actions" id="terminal-actions">
+            <div id="terminal-session-tabs" class="terminal-session-tabs"></div>
+            <button id="btn-add-terminal" class="panel-action-btn" title="新規ターミナル (Ctrl+Shift+`)">+</button>
+            <button id="btn-kill-terminal" class="panel-action-btn" title="ターミナルを終了">🗑</button>
+            <button id="btn-close-panel" class="panel-action-btn" title="パネルを閉じる">×</button>
+          </div>
         </div>
         <div id="terminal-container"></div>
       </section>
@@ -111,13 +118,14 @@
   <footer id="statusbar">
     <div class="statusbar-left">
       <span class="status-item clickable" id="status-branch" title="クリックしてブランチを切り替え">🌿 main</span>
-      <span class="status-item">⚠️ 0  ❌ 0</span>
+      <span class="status-item clickable" id="status-problems" title="問題パネルを開く">⚠️ 0  ❌ 0</span>
     </div>
     <div class="statusbar-right">
-      <span class="status-item" id="status-line-col">行: 1, 列: 1</span>
-      <span class="status-item">スペース: 4</span>
-      <span class="status-item">UTF-8</span>
-      <span class="status-item" id="status-language">RUST</span>
+      <span class="status-item clickable" id="status-line-col" title="行へ移動 (Ctrl+G)">行: 1, 列: 1</span>
+      <span class="status-item clickable" id="status-indent" title="インデントの変更">スペース: 4</span>
+      <span class="status-item clickable" id="status-encoding" title="エンコーディングの変更">UTF-8</span>
+      <span class="status-item clickable" id="status-eol" title="改行文字の変更">CRLF</span>
+      <span class="status-item clickable" id="status-language" title="言語モードの選択">RUST</span>
       <span class="status-item highlight" id="global-status">準備完了</span>
     </div>
   </footer>
