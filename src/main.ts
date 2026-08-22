@@ -62,6 +62,9 @@ interface MenuItemDef {
 let workspaceRoot = "";
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
 let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
+let activeEditorPane: 1 | 2 = 1;
+let pane1FilePath: string | null = "welcome.rs";
+let pane2FilePath: string | null = null;
 let isSplitActive = false;
 let splitOrientation: "horizontal" | "vertical" = "horizontal";
 
@@ -508,23 +511,34 @@ fn main() {
     model: initialModel,
   });
 
-  editor1.onDidFocusEditorText(() => closeGlobalMenu());
-  editor2.onDidFocusEditorText(() => closeGlobalMenu());
+  editor1.onDidFocusEditorText(() => {
+    activeEditorPane = 1;
+    closeGlobalMenu();
+    if (pane1FilePath) updateStatusBar(pane1FilePath);
+  });
+  editor2.onDidFocusEditorText(() => {
+    activeEditorPane = 2;
+    closeGlobalMenu();
+    if (pane2FilePath) updateStatusBar(pane2FilePath);
+  });
   editor1.onMouseDown(() => closeGlobalMenu());
   editor2.onMouseDown(() => closeGlobalMenu());
 
   editor1.onDidChangeCursorPosition((e) => {
-    const statusLineCol = document.getElementById("status-line-col");
-    if (statusLineCol) {
-      statusLineCol.textContent = `行: ${e.position.lineNumber}, 列: ${e.position.column}`;
+    if (activeEditorPane === 1) {
+      const statusLineCol = document.getElementById("status-line-col");
+      if (statusLineCol) {
+        statusLineCol.textContent = `行: ${e.position.lineNumber}, 列: ${e.position.column}`;
+      }
     }
   });
 
-  initialModel.onDidChangeContent(() => {
-    if (activeFilePath && openTabs.has(activeFilePath)) {
-      const tab = openTabs.get(activeFilePath)!;
-      tab.isDirty = true;
-      updateTabBar();
+  editor2.onDidChangeCursorPosition((e) => {
+    if (activeEditorPane === 2) {
+      const statusLineCol = document.getElementById("status-line-col");
+      if (statusLineCol) {
+        statusLineCol.textContent = `行: ${e.position.lineNumber}, 列: ${e.position.column}`;
+      }
     }
   });
 
@@ -677,6 +691,63 @@ async function performGoToDefinition() {
   }
 
   showStatusMessage(`'${targetSymbol}' の定義は見つかりませんでした`);
+}
+
+function renderMenuLevel(items: MenuItemDef[], container: HTMLElement) {
+  container.innerHTML = "";
+  items.forEach((item) => {
+    if (item.type === "separator") {
+      const sep = document.createElement("div");
+      sep.className = "menu-dropdown-separator";
+      container.appendChild(sep);
+    } else {
+      const row = document.createElement("div");
+      row.className = `menu-dropdown-item ${item.disabled ? "disabled" : ""}`;
+
+      const hasSub = Boolean(item.submenu && item.submenu.length > 0);
+      row.innerHTML = `
+        <span class="item-label">${item.label || ""}</span>
+        <div class="item-right" style="display: flex; align-items: center;">
+          ${item.shortcut ? `<span class="item-shortcut">${item.shortcut}</span>` : ""}
+          ${hasSub ? `<span class="item-arrow">›</span>` : ""}
+        </div>
+      `;
+
+      if (hasSub) {
+        row.addEventListener("mouseenter", () => {
+          if (activeSubmenuEl) activeSubmenuEl.remove();
+
+          const subContainer = document.createElement("div");
+          subContainer.className = "vs-dropdown";
+          const rect = row.getBoundingClientRect();
+          subContainer.style.left = `${rect.right + 2}px`;
+          subContainer.style.top = `${rect.top - 4}px`;
+          renderMenuLevel(item.submenu!, subContainer);
+          document.body.appendChild(subContainer);
+          activeSubmenuEl = subContainer;
+        });
+      } else {
+        row.addEventListener("mouseenter", () => {
+          if (activeSubmenuEl) {
+            activeSubmenuEl.remove();
+            activeSubmenuEl = null;
+          }
+        });
+      }
+
+      row.onclick = (e) => {
+        e.stopPropagation();
+        if (!hasSub) {
+          closeGlobalMenu();
+          if (item.action && !item.disabled) {
+            item.action();
+          }
+        }
+      };
+
+      container.appendChild(row);
+    }
+  });
 }
 
 // 3. VS Code Exact Menu System
@@ -834,63 +905,6 @@ function setupVSCodeMenus() {
       activeSubmenuEl.remove();
       activeSubmenuEl = null;
     }
-  }
-
-  function renderMenuLevel(items: MenuItemDef[], container: HTMLElement) {
-    container.innerHTML = "";
-    items.forEach((item) => {
-      if (item.type === "separator") {
-        const sep = document.createElement("div");
-        sep.className = "menu-dropdown-separator";
-        container.appendChild(sep);
-      } else {
-        const row = document.createElement("div");
-        row.className = `menu-dropdown-item ${item.disabled ? "disabled" : ""}`;
-
-        const hasSub = Boolean(item.submenu && item.submenu.length > 0);
-        row.innerHTML = `
-          <span class="item-label">${item.label || ""}</span>
-          <div class="item-right" style="display: flex; align-items: center;">
-            ${item.shortcut ? `<span class="item-shortcut">${item.shortcut}</span>` : ""}
-            ${hasSub ? `<span class="item-arrow">›</span>` : ""}
-          </div>
-        `;
-
-        if (hasSub) {
-          row.addEventListener("mouseenter", () => {
-            if (activeSubmenuEl) activeSubmenuEl.remove();
-
-            const subContainer = document.createElement("div");
-            subContainer.className = "vs-dropdown";
-            const rect = row.getBoundingClientRect();
-            subContainer.style.left = `${rect.right + 2}px`;
-            subContainer.style.top = `${rect.top - 4}px`;
-            renderMenuLevel(item.submenu!, subContainer);
-            document.body.appendChild(subContainer);
-            activeSubmenuEl = subContainer;
-          });
-        } else {
-          row.addEventListener("mouseenter", () => {
-            if (activeSubmenuEl) {
-              activeSubmenuEl.remove();
-              activeSubmenuEl = null;
-            }
-          });
-        }
-
-        row.onclick = (e) => {
-          e.stopPropagation();
-          if (!hasSub) {
-            closeGlobalMenu();
-            if (item.action && !item.disabled) {
-              item.action();
-            }
-          }
-        };
-
-        container.appendChild(row);
-      }
-    });
   }
 
   const backdropEl = document.getElementById("menu-backdrop");
@@ -1081,43 +1095,52 @@ function setupGridSplitters() {
   const btnSplitRight = document.getElementById("btn-split-right");
   const btnSplitDown = document.getElementById("btn-split-down");
   const btnCloseSplit = document.getElementById("btn-close-split");
+  const pane1 = document.getElementById("editor-pane-1");
   const pane2 = document.getElementById("editor-pane-2");
   const gridResizer = document.getElementById("grid-resizer");
   const editorGrid = document.getElementById("editor-grid");
 
-  if (btnSplitRight && pane2 && gridResizer && editorGrid) {
+  if (btnSplitRight && pane1 && pane2 && gridResizer && editorGrid) {
     btnSplitRight.addEventListener("click", () => {
       isSplitActive = true;
       splitOrientation = "horizontal";
       editorGrid.style.flexDirection = "row";
+      pane1.style.flex = "0 0 50%";
+      pane2.style.flex = "0 0 50%";
       gridResizer.className = "resizer horizontal";
       pane2.classList.remove("hidden");
       gridResizer.classList.remove("hidden");
+      activeEditorPane = 2;
       editor1?.layout();
       editor2?.layout();
       showStatusMessage("エディターを左右に分割しました");
     });
   }
 
-  if (btnSplitDown && pane2 && gridResizer && editorGrid) {
+  if (btnSplitDown && pane1 && pane2 && gridResizer && editorGrid) {
     btnSplitDown.addEventListener("click", () => {
       isSplitActive = true;
       splitOrientation = "vertical";
       editorGrid.style.flexDirection = "column";
+      pane1.style.flex = "0 0 50%";
+      pane2.style.flex = "0 0 50%";
       gridResizer.className = "resizer vertical";
       pane2.classList.remove("hidden");
       gridResizer.classList.remove("hidden");
+      activeEditorPane = 2;
       editor1?.layout();
       editor2?.layout();
       showStatusMessage("エディターを上下に分割しました");
     });
   }
 
-  if (btnCloseSplit && pane2 && gridResizer) {
+  if (btnCloseSplit && pane1 && pane2 && gridResizer) {
     btnCloseSplit.addEventListener("click", () => {
       isSplitActive = false;
       pane2.classList.add("hidden");
       gridResizer.classList.add("hidden");
+      pane1.style.flex = "1 1 100%";
+      activeEditorPane = 1;
       editor1?.layout();
       showStatusMessage("エディター分割を閉じました");
     });
@@ -1229,18 +1252,22 @@ async function initExtensionHost() {
 }
 
 // 9. Open / Switch Files
-async function openFile(rawPath: string, name?: string) {
+async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
   if (!editor1) return;
 
   const path = normalizePath(rawPath);
   const fileName = name || path.split("/").pop() || path;
+  const pane = targetPane ?? activeEditorPane;
 
   if (openTabs.has(path)) {
     activeFilePath = path;
     const tab = openTabs.get(path)!;
-    editor1.setModel(tab.model);
-    if (isSplitActive && editor2) {
+    if (pane === 1 || !isSplitActive) {
+      editor1.setModel(tab.model);
+      pane1FilePath = path;
+    } else if (editor2) {
       editor2.setModel(tab.model);
+      pane2FilePath = path;
     }
     updateTabBar();
     updateStatusBar(path);
@@ -1289,9 +1316,12 @@ async function openFile(rawPath: string, name?: string) {
 
     openTabs.set(path, tabData);
     activeFilePath = path;
-    editor1.setModel(model);
-    if (isSplitActive && editor2) {
+    if (pane === 1 || !isSplitActive) {
+      editor1.setModel(model);
+      pane1FilePath = path;
+    } else if (editor2) {
       editor2.setModel(model);
+      pane2FilePath = path;
     }
 
     // Ensure LSP is running and send didOpen
@@ -1535,16 +1565,22 @@ async function closeTab(rawPath: string): Promise<boolean> {
     },
   }).catch(() => {});
 
+  const keys = Array.from(openTabs.keys());
+  const closedIndex = keys.indexOf(path);
+
   tab.model.dispose();
   openTabs.delete(path);
 
   if (activeFilePath === path) {
     const remainingKeys = Array.from(openTabs.keys());
     if (remainingKeys.length > 0) {
-      const nextPath = remainingKeys[remainingKeys.length - 1];
+      const nextIndex = Math.min(Math.max(0, closedIndex - 1), remainingKeys.length - 1);
+      const nextPath = remainingKeys[nextIndex];
       openFile(nextPath, openTabs.get(nextPath)!.name);
     } else {
       activeFilePath = null;
+      pane1FilePath = null;
+      pane2FilePath = null;
       if (editor1) {
         const emptyModel = monaco.editor.createModel("", "plaintext");
         editor1.setModel(emptyModel);
@@ -2086,10 +2122,147 @@ async function loadWorkspaceFiles() {
         node.addEventListener("click", () => openFile(file.path, file.name));
       }
 
+      node.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showExplorerContextMenu(e.clientX, e.clientY, file);
+      };
+
       contentEl.appendChild(node);
     });
   } catch (e) {
     contentEl.innerHTML = `<div style="color: #888; padding: 8px;">ワークスペース読込中...</div>`;
+  }
+}
+
+function showExplorerContextMenu(x: number, y: number, file: FileEntry) {
+  const dropdown = document.getElementById("global-menu-dropdown");
+  if (!dropdown) return;
+
+  dropdown.innerHTML = "";
+  dropdown.className = "vs-dropdown";
+  dropdown.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+  dropdown.style.top = `${Math.min(y, window.innerHeight - 280)}px`;
+  dropdown.classList.remove("hidden");
+  isTopMenuOpen = true;
+
+  const items: MenuItemDef[] = [
+    {
+      label: "名前の変更 (Rename)",
+      shortcut: "F2",
+      action: () => promptRenameFile(file.path),
+    },
+    {
+      label: "削除 (Delete)",
+      shortcut: "Delete",
+      action: async () => {
+        if (confirm(`'${file.name}' を削除してよろしいですか？`)) {
+          try {
+            await invoke("delete_file", { path: file.path });
+            await loadWorkspaceFiles();
+            showStatusMessage(`削除完了: ${file.name}`);
+          } catch (err) {
+            alert(`削除エラー: ${err}`);
+          }
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "パスのコピー (Copy Path)",
+      action: () => {
+        const full = normalizePath(file.path);
+        navigator.clipboard.writeText(full);
+        showStatusMessage("絶対パスをコピーしました");
+      },
+    },
+    {
+      label: "相対パスのコピー (Copy Relative Path)",
+      action: () => {
+        navigator.clipboard.writeText(file.path);
+        showStatusMessage("相対パスをコピーしました");
+      },
+    },
+    { type: "separator" },
+    {
+      label: "エクスプローラーで表示 (Reveal in OS)",
+      action: async () => {
+        try {
+          await invoke("reveal_in_os_explorer", { path: file.path });
+        } catch (e) {
+          console.error(e);
+        }
+      },
+    },
+  ];
+
+  if (file.is_dir) {
+    items.unshift(
+      {
+        label: "ここに新しいファイル...",
+        action: async () => {
+          const name = prompt(`'${file.path}' 内の新規ファイル名:`);
+          if (!name) return;
+          const target = `${file.path.replace(/\\/g, "/")}/${name}`;
+          try {
+            await invoke("create_file", { path: target });
+            await loadWorkspaceFiles();
+            await openFile(target, name);
+          } catch (e) {
+            alert(`ファイル作成失敗: ${e}`);
+          }
+        },
+      },
+      {
+        label: "ここに新しいフォルダー...",
+        action: async () => {
+          const name = prompt(`'${file.path}' 内の新規フォルダー名:`);
+          if (!name) return;
+          const target = `${file.path.replace(/\\/g, "/")}/${name}`;
+          try {
+            await invoke("create_directory", { path: target });
+            await loadWorkspaceFiles();
+          } catch (e) {
+            alert(`フォルダー作成失敗: ${e}`);
+          }
+        },
+      },
+      { type: "separator" }
+    );
+  }
+
+  renderMenuLevel(items, dropdown);
+}
+
+async function promptRenameFile(oldPath: string) {
+  const normOld = normalizePath(oldPath);
+  const oldName = normOld.split("/").pop() || oldPath;
+  const newName = prompt("新しいファイル名/パスを入力してください:", oldName);
+  if (!newName || newName === oldName) return;
+
+  const parentDir = normOld.substring(0, normOld.lastIndexOf("/"));
+  const newPath = parentDir ? `${parentDir}/${newName}` : newName;
+
+  try {
+    await invoke("rename_file", { oldPath: oldPath, newPath: newPath });
+    
+    // もし開いていたタブがあればパスを更新
+    if (openTabs.has(normOld)) {
+      const tab = openTabs.get(normOld)!;
+      openTabs.delete(normOld);
+      tab.path = newPath;
+      tab.name = newName;
+      openTabs.set(newPath, tab);
+      if (activeFilePath === normOld) {
+        activeFilePath = newPath;
+      }
+      updateTabBar();
+    }
+
+    await loadWorkspaceFiles();
+    showStatusMessage(`名前変更完了: ${newName}`);
+  } catch (err) {
+    alert(`名前変更失敗: ${err}`);
   }
 }
 
@@ -2188,6 +2361,45 @@ function setupResizers() {
     });
   }
 
+  const gridResizer = document.getElementById("grid-resizer");
+  const pane1 = document.getElementById("editor-pane-1");
+  const pane2 = document.getElementById("editor-pane-2");
+  const editorGrid = document.getElementById("editor-grid");
+
+  if (gridResizer && pane1 && pane2 && editorGrid) {
+    let isDraggingGrid = false;
+    gridResizer.addEventListener("mousedown", (e) => {
+      isDraggingGrid = true;
+      gridResizer.classList.add("dragging");
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDraggingGrid) return;
+      const rect = editorGrid.getBoundingClientRect();
+      if (splitOrientation === "horizontal") {
+        const offset = e.clientX - rect.left;
+        const pct = Math.max(15, Math.min(85, (offset / rect.width) * 100));
+        pane1.style.flex = `0 0 ${pct}%`;
+        pane2.style.flex = `0 0 ${100 - pct}%`;
+      } else {
+        const offset = e.clientY - rect.top;
+        const pct = Math.max(15, Math.min(85, (offset / rect.height) * 100));
+        pane1.style.flex = `0 0 ${pct}%`;
+        pane2.style.flex = `0 0 ${100 - pct}%`;
+      }
+      editor1?.layout();
+      editor2?.layout();
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isDraggingGrid) {
+        isDraggingGrid = false;
+        gridResizer.classList.remove("dragging");
+      }
+    });
+  }
+
   const btnClosePanel = document.getElementById("btn-close-panel");
   if (btnClosePanel && panelPart) {
     btnClosePanel.addEventListener("click", () => {
@@ -2234,6 +2446,11 @@ function setupQuickPick() {
       }
     }
   });
+}
+
+function closeQuickPick() {
+  const modal = document.getElementById("quickpick-modal");
+  modal?.classList.add("hidden");
 }
 
 function openQuickPick(isCommandMode: boolean) {
@@ -2358,22 +2575,108 @@ function executeCommand(id: string) {
 
 // 20. Global Shortcuts & Status Bar
 function setupShortcuts() {
-  window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.key === "s") {
+  window.addEventListener("keydown", async (e) => {
+    // 1. Browser Default Interceptions
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      document.getElementById("btn-new-file")?.click();
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      document.getElementById("btn-new-folder")?.click();
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "w") {
+      e.preventDefault();
+      if (activeFilePath) closeTab(activeFilePath);
+      return;
+    }
+    if (e.key === "F5") {
+      e.preventDefault();
+      showStatusMessage("▶ 実行中 (Run)");
+      return;
+    }
+    if (e.key === "F2") {
+      e.preventDefault();
+      if (activeFilePath) {
+        const tab = openTabs.get(activeFilePath);
+        if (tab) promptRenameFile(tab.path);
+      }
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "g") {
+      e.preventDefault();
+      const lineStr = prompt("移動先の行番号を入力してください:");
+      if (lineStr) {
+        const lineNum = parseInt(lineStr, 10);
+        if (!isNaN(lineNum) && editor1) {
+          editor1.revealLineInCenter(lineNum);
+          editor1.setPosition({ lineNumber: lineNum, column: 1 });
+        }
+      }
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key === ",") {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "g") {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "x") {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "~")) {
+      e.preventDefault();
+      showStatusMessage("新規ターミナルを開きました");
+      toggleTerminal(true);
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "s") {
       e.preventDefault();
       saveActiveFile();
-    } else if (e.ctrlKey && e.shiftKey && e.key === "P") {
-      e.preventDefault();
-      openQuickPick(true);
-    } else if (e.ctrlKey && e.key === "p") {
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "p") {
       e.preventDefault();
       openQuickPick(false);
-    } else if (e.ctrlKey && e.key === "b") {
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      openQuickPick(true);
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "b") {
       e.preventDefault();
       toggleSidebar();
-    } else if (e.ctrlKey && e.key === "j") {
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "j") {
       e.preventDefault();
       toggleTerminal();
+      return;
+    }
+    if (e.key === "Escape") {
+      closeGlobalMenu();
+      closeQuickPick();
+      document.getElementById("confirm-modal")?.classList.add("hidden");
     }
   });
 }

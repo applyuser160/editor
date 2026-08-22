@@ -251,7 +251,7 @@ pub async fn resize_pty(
 pub async fn list_workspace_files() -> Result<Vec<FileEntry>, String> {
     let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut entries = Vec::new();
-    scan_dir_recursive(&current_dir, &current_dir, 0, &mut entries, 3)?;
+    scan_dir_recursive(&current_dir, &current_dir, 0, &mut entries, 30)?;
     Ok(entries)
 }
 
@@ -274,7 +274,7 @@ fn scan_dir_recursive(
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" {
+        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
             continue;
         }
 
@@ -355,6 +355,33 @@ pub async fn rename_file(old_path: String, new_path: String) -> Result<(), Strin
         let _ = std::fs::create_dir_all(parent);
     }
     std::fs::rename(&src, &dst).map_err(|e| format!("Failed to rename {} to {}: {}", old_path, new_path, e))
+}
+
+#[tauri::command]
+pub async fn reveal_in_os_explorer(path: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&path)?;
+    #[cfg(target_os = "windows")]
+    {
+        let path_str = full_path.to_string_lossy().to_string().replace('/', "\\");
+        let _ = Command::new("explorer")
+            .arg(format!("/select,{}", path_str))
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open")
+            .arg("-R")
+            .arg(full_path)
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let parent = full_path.parent().unwrap_or(&full_path);
+        let _ = Command::new("xdg-open")
+            .arg(parent)
+            .spawn();
+    }
+    Ok(())
 }
 
 #[tauri::command]

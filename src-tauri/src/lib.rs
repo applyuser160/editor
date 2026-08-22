@@ -54,7 +54,8 @@ pub fn run() {
             commands::git_get_status,
             commands::git_commit,
             commands::execute_terminal_command,
-            commands::get_workspace_path
+            commands::get_workspace_path,
+            commands::reveal_in_os_explorer
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Editor Tauri application");
