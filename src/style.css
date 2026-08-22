@@ -23,6 +23,10 @@
   padding: 0;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   font-family: var(--font-family);
   background-color: var(--bg-dark);
@@ -566,47 +570,78 @@ body {
 /* Bottom Panel Part */
 #panel-part {
   height: 220px;
-  background-color: var(--bg-dark);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: #181818;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .panel-header {
-  height: 32px;
+  height: 35px;
   background-color: var(--bg-sidebar);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 12px;
-  font-size: 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+}
+
+.panel-header-tabs {
+  display: flex;
+  align-items: center;
   gap: 16px;
+  height: 100%;
 }
 
 .panel-tab {
+  display: flex;
+  align-items: center;
+  height: 100%;
   cursor: pointer;
-  color: var(--text-muted);
+  color: #888888;
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  padding: 0 2px;
+  transition: color 0.12s ease;
+}
+
+.panel-tab:hover {
+  color: #ffffff;
 }
 
 .panel-tab.active {
-  color: var(--text-bright);
+  color: #ffffff;
   font-weight: 600;
-  border-bottom: 1px solid var(--accent-color);
+  border-bottom: 2px solid var(--accent-color);
 }
 
-#btn-close-panel {
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: pointer;
 }
 
 #terminal-container {
   flex: 1;
+  height: calc(100% - 35px);
+  width: 100%;
   background-color: #181818;
-  padding: 4px;
+  padding: 4px 6px;
   overflow: hidden;
+}
+
+.panel-content-area {
+  flex: 1;
+  height: calc(100% - 35px);
+  width: 100%;
+  background-color: #181818;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 /* 3. Status Bar */
@@ -872,18 +907,6 @@ body {
   color: var(--text-bright);
 }
 
-/* Terminal Tabs & Actions */
-.panel-header-tabs {
-  display: flex;
-  align-items: center;
-}
-
-.panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .terminal-session-tabs {
   display: flex;
   align-items: center;
@@ -895,19 +918,22 @@ body {
   padding: 2px 8px;
   border-radius: 3px;
   background-color: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted);
+  color: #888888;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.12s ease;
 }
 
 .terminal-tab:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--text-bright);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
 }
 
 .terminal-tab.active {
-  background-color: var(--accent-color);
+  background-color: rgba(0, 122, 204, 0.35);
+  border-color: var(--accent-color);
   color: #ffffff;
+  font-weight: 500;
 }
 
 .panel-action-btn {

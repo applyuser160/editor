@@ -1420,6 +1420,9 @@ function setupPanelTabs() {
   tabTerm?.addEventListener("click", () => selectTab("terminal"));
   tabOut?.addEventListener("click", () => selectTab("output"));
   tabProb?.addEventListener("click", () => selectTab("problems"));
+
+  // Initial tab selection
+  selectTab("terminal");
 }
 
 function renderProblemsPanel() {
