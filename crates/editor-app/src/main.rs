@@ -1043,7 +1043,7 @@ impl eframe::App for OxideGuiApp {
 
                                             ScrollArea::vertical().show(ui, |ui| {
                                                 for line in self.buffer_text.lines().take(60) {
-                                                    let preview_line = if line.len() > 25 { &line[..25] } else { line };
+                                                    let preview_line: String = line.chars().take(25).collect();
                                                     ui.label(RichText::new(preview_line).size(4.0).color(Color32::from_rgb(120, 150, 180)));
                                                 }
                                             });
@@ -1116,41 +1116,47 @@ impl OxideGuiApp {
 
         let mut current_idx = 0;
         for span in spans {
-            if span.start_offset > current_idx && span.start_offset <= text.len() {
+            if span.start_offset > current_idx
+                && span.start_offset <= text.len()
+                && text.is_char_boundary(current_idx)
+                && text.is_char_boundary(span.start_offset)
+            {
                 let unhighlighted = &text[current_idx..span.start_offset];
                 job.append(unhighlighted, 0.0, default_format.clone());
             }
 
-            if span.start_offset < text.len() {
+            if span.start_offset < text.len() && text.is_char_boundary(span.start_offset) {
                 let end = span.end_offset.min(text.len());
-                let token_text = &text[span.start_offset..end];
+                if text.is_char_boundary(end) {
+                    let token_text = &text[span.start_offset..end];
 
-                let color = match span.token_type {
-                    TokenType::Keyword | TokenType::ControlFlow => Color32::from_rgb(86, 156, 214),
-                    TokenType::Function | TokenType::Method => Color32::from_rgb(220, 220, 170),
-                    TokenType::Type | TokenType::Struct | TokenType::Enum | TokenType::Trait => {
-                        Color32::from_rgb(78, 201, 176)
-                    }
-                    TokenType::String => Color32::from_rgb(206, 145, 120),
-                    TokenType::Number => Color32::from_rgb(181, 206, 168),
-                    TokenType::Comment | TokenType::DocComment => Color32::from_rgb(106, 153, 85),
-                    TokenType::Macro => Color32::from_rgb(197, 134, 192),
-                    TokenType::Operator | TokenType::Punctuation => Color32::from_rgb(212, 212, 212),
-                    _ => Color32::from_rgb(156, 220, 254),
-                };
+                    let color = match span.token_type {
+                        TokenType::Keyword | TokenType::ControlFlow => Color32::from_rgb(86, 156, 214),
+                        TokenType::Function | TokenType::Method => Color32::from_rgb(220, 220, 170),
+                        TokenType::Type | TokenType::Struct | TokenType::Enum | TokenType::Trait => {
+                            Color32::from_rgb(78, 201, 176)
+                        }
+                        TokenType::String => Color32::from_rgb(206, 145, 120),
+                        TokenType::Number => Color32::from_rgb(181, 206, 168),
+                        TokenType::Comment | TokenType::DocComment => Color32::from_rgb(106, 153, 85),
+                        TokenType::Macro => Color32::from_rgb(197, 134, 192),
+                        TokenType::Operator | TokenType::Punctuation => Color32::from_rgb(212, 212, 212),
+                        _ => Color32::from_rgb(156, 220, 254),
+                    };
 
-                let format = egui::TextFormat {
-                    font_id: egui::FontId::monospace(font_size),
-                    color,
-                    ..Default::default()
-                };
+                    let format = egui::TextFormat {
+                        font_id: egui::FontId::monospace(font_size),
+                        color,
+                        ..Default::default()
+                    };
 
-                job.append(token_text, 0.0, format);
-                current_idx = end;
+                    job.append(token_text, 0.0, format);
+                    current_idx = end;
+                }
             }
         }
 
-        if current_idx < text.len() {
+        if current_idx < text.len() && text.is_char_boundary(current_idx) {
             job.append(&text[current_idx..], 0.0, default_format);
         }
     }
