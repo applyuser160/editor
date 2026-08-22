@@ -1,0 +1,215 @@
+# Microsoft VS Code 全ファイル・全モジュール網羅的解析チェックリスト
+
+> 本チェックリストは、Microsoft 公式リポジトリ [`microsoft/vscode`](https://github.com/microsoft/vscode) のすべてのファイル・ディレクトリ・アーキテクチャモジュールを漏れなく解析し、Rust 製ネイティブフレームワークへの完全置換・移植を完遂するための網羅的進捗管理表です。
+
+---
+
+## 📊 全体進捗サマリー
+
+| レイヤー / サブシステム | 対象元パス (`src/vs/`) | 解析項目数 | 完了数 | 進捗率 |
+| :--- | :--- | :---: | :---: | :---: |
+| **1. Base レイヤー** | `src/vs/base/` | 42 | 0 | 0% |
+| **2. Platform サービス層** | `src/vs/platform/` | 58 | 0 | 0% |
+| **3. Monaco Editor コア** | `src/vs/editor/` | 64 | 0 | 0% |
+| **4. Workbench UI / Shell** | `src/vs/workbench/` | 86 | 0 | 0% |
+| **5. Extension Host 基盤** | `src/vs/workbench/api/` | 38 | 0 | 0% |
+| **6. Native Shell / Lifecycle**| `src/vs/code/` | 24 | 0 | 0% |
+| **7. Remote / Server** | `src/vs/server/` | 18 | 0 | 0% |
+| **8. Built-in Extensions** | `extensions/` | 30 | 0 | 0% |
+| **合計** | -- | **360** | **0** | **0%** |
+
+---
+
+## 1. `src/vs/base/` (共通基盤・ユーティリティ層)
+
+### 1.1 `src/vs/base/common/` (環境非依存コア)
+- [ ] `lifecycle.ts` - `IDisposable`, `DisposableStore`, `MutableDisposable`, 参照カウント
+- [ ] `event.ts` - `Event<T>`, `Emitter<T>`, `AsyncEmitter`, `Relay`, イベントフィルタ・マップ
+- [ ] `cancellation.ts` - `CancellationToken`, `CancellationTokenSource`
+- [ ] `async.ts` - `DeferredPromise`, `Throttler`, `Delayer`, `Limiter`, `Barrier`, `Queue`
+- [ ] `buffer.ts` - `VSBuffer` (スライス・コピー・UTF-8変換・ストリーム)
+- [ ] `uri.ts` - `URI` (スキーム、パス、クエリ、フラグメント、fsPath正規化)
+- [ ] `path.ts` - POSIX / Windows パス相互変換・結合・正規化
+- [ ] `strings.ts` - UTF-16 / UTF-8 文字列操作、サロゲートペア、エスケープ
+- [ ] `arrays.ts` - 二分探索、挿入、差分抽出、重複排除
+- [ ] `map.ts` - `TernarySearchTree`, `LRUCache`, `ResourceMap`, `LinkedMap`
+- [ ] `prefixTree.ts` - プレフィックス検索木
+- [ ] `hash.ts` - SHA-1, Murmur3, FNV ハッシュ計算
+- [ ] `uuid.ts` - UUID v4 生成
+- [ ] `errors.ts` - 構造化例外ハンドリング、キャンセルエラー判定
+- [ ] `observable.ts` - リアクティブステート管理 (`observableValue`, `derived`, `autorun`)
+- [ ] `network.ts` - スキーム定義 (`file`, `vscode-remote`, `vscode-webview`, etc.)
+- [ ] `diff/` - 文字列・配列の最長共通部分列 (LCS) / Myers 差分アルゴリズム
+- [ ] `json.ts` - コメント付き JSON (JSONC) パーサー・フォーマッター
+- [ ] `semver/` - セマンティックバージョニングパース・比較
+
+### 1.2 `src/vs/base/browser/` (ブラウザ・UI基本部品)
+- [ ] `dom.ts` - ウィンドウ・エレメント作成・リサイズ・イベント委譲
+- [ ] `keyboardEvent.ts` - キーコード、モディファイアキー (Ctrl/Cmd, Shift, Alt) 変換
+- [ ] `mouseEvent.ts` - マウスクリック、ホイール、ドラッグ&ドロップイベント
+- [ ] `touch.ts` - タッチジェスチャー
+- [ ] `ui/widget/` - スクロールバー (`scrollbar/`), リスト (`list/`), ツリー (`tree/`)
+- [ ] `ui/contextview/` - コンテキストメニュー、ドロップダウン表示レイアウト
+- [ ] `ui/splitview/` - スプリットビュー（水平・垂直リサイズ分割）
+- [ ] `ui/grid/` - 2次元グリッドレイアウトエンジン (エディター分割の根幹)
+- [ ] `window.ts` - ウィンドウフォーカス、DPI スケール変更ハンドラ
+
+### 1.3 `src/vs/base/node/` (OS・ファイルシステム・プロセス基盤)
+- [ ] `pfs.ts` - ノンブロッキング非同期ファイル操作 (`rimraf`, `mkdirp`, `readlink`)
+- [ ] `extfs.ts` - 高速ディレクトリ再帰スキャン
+- [ ] `ps.ts` - OS プロセスツリー走査・子プロセス監視
+- [ ] `ports.ts` - 利用可能ポート探索
+- [ ] `zip.ts` - `.vsix` / ZIP パッケージ展開・圧縮
+- [ ] `processes.ts` - 環境変数マージ、サブプロセス起動
+
+### 1.4 `src/vs/base/parts/ipc/` (プロセス間通信)
+- [ ] `common/ipc.ts` - `IChannel`, `IChannelClient`, `IChannelServer`, 双方向メッセージプロトコル
+- [ ] `node/ipc.net.ts` - Socket / Named Pipe による高速バイナリ IPC
+- [ ] `electron-main/` - Electron IPCBridge エミュレーション
+
+---
+
+## 2. `src/vs/platform/` (依存性注入 & プラットフォームサービス)
+
+### 2.1 サービスコンテナ & コア基盤
+- [ ] `instantiation/` - `createDecorator`, `ServiceCollection`, `InstantiationService` (DIエンジン)
+- [ ] `configuration/` - `IConfigurationService`, `settings.json` の継承・マージ・検証
+- [ ] `contextkey/` - `IContextKeyService`, `when` 句の AST 構文解析・動的評価
+- [ ] `commands/` - `ICommandService`, `CommandsRegistry` (全コマンドの中央登録所)
+- [ ] `keybinding/` - `IKeybindingService`, `KeybindingResolver` (キーバインド解決)
+- [ ] `actions/` - `MenuRegistry`, `IMenuService` (メニューバー・コンテキストメニュー統合)
+
+### 2.2 ファイル & ストレージ
+- [ ] `files/` - `IFileService`, `IFileSystemProvider` (ローカル、リモート、メモリ抽象化)
+- [ ] `files/node/watcher/` - ファイルシステム変更監視 (`notify` 連携, `.gitignore` 考慮)
+- [ ] `storage/` - `IStorageService`, グローバル & ワークスペース SQLite/JSON キャッシュ
+
+### 2.3 UI・ウィンドウ制御サービス
+- [ ] `dialogs/` - `IDialogService` (確認ダイアログ、ファイルオープン/保存ダイアログ)
+- [ ] `notification/` - `INotificationService` (情報/警告/エラー通知トースト)
+- [ ] `quickinput/` - `IQuickInputService` (QuickPick, InputBox モーダル)
+- [ ] `theme/` - `IThemeService`, TextMate / VS Code カラースキーマレジストリ
+- [ ] `layout/` - `ILayoutService` (ウィンドウ全体領域分割・リサイズ制御)
+- [ ] `opener/` - `IOpenerService` (外部URL、内部ファイル、カスタムスキーム遷移)
+- [ ] `clipboard/` - `IClipboardService` (システムクリップボード読み書き)
+
+### 2.4 環境・端末サービス
+- [ ] `terminal/` - `ITerminalService`, `ITerminalProfileService`, PTY プロセスライフサイクル
+- [ ] `workspace/` - `IWorkspaceContextService` (単一フォルダ / マルチルートワークスペース)
+- [ ] `environment/` - `IEnvironmentService` (パス、ユーザーデータ、拡張機能ディレクトリ設定)
+- [ ] `log/` - `ILogService` (階層型ロガー、ログレベル制御)
+
+---
+
+## 3. `src/vs/editor/` (Monaco Editor コア)
+
+### 3.1 テキストモデル & バッファ
+- [ ] `common/model/textModel.ts` - テキストモデル本体、イベント、行アクセス
+- [ ] `common/model/pieceTreeTextBuffer/` - Piece Table / Piece Tree データ構造
+- [ ] `common/model/editStack.ts` - Undo / Redo スタック、トランザクション管理
+- [ ] `common/core/position.ts` - `Position(lineNumber, column)`
+- [ ] `common/core/range.ts` - `Range(startLine, startCol, endLine, endCol)`
+- [ ] `common/core/selection.ts` - マルチカーソル・選択範囲管理
+- [ ] `common/core/lineTokens.ts` - 行トークン列・スタイルキャッシュ
+
+### 3.2 構文解析・トークナイズ
+- [ ] `common/languages/` - 言語定義、構文ルール、コメント設定、ブラケット定義
+- [ ] `common/tokens/` - TextMate Grammars インターフェース
+- [ ] `common/services/semanticTokensProvider.ts` - LSP セマンティックハイライト
+
+### 3.3 ビューレンダリング & デコレーター
+- [ ] `browser/view/viewLines.ts` - 画面内可視行の仮想スクロール描画
+- [ ] `browser/view/viewGutter.ts` - 行番号、ブレークポイント、折りたたみアイコン
+- [ ] `browser/view/minimap/` - ミニマップ高速描画エンジン
+- [ ] `common/model/textModelDecorations.ts` - インライン波線、Git ガターマーカー、ハイライト
+
+### 3.4 エディター拡張機能 (`contrib/`)
+- [ ] `find/` - バッファ内検索・置換（正規表現、大文字小文字、単語全体一致）
+- [ ] `suggest/` - IntelliSense コード補完ポップアップ & キーボードナビゲーション
+- [ ] `hover/` - 型情報・ドキュメントホバー
+- [ ] `gotoSymbol/` - 定義へジャンプ (`F12`), 参照の検索 (`Shift+F12`)
+- [ ] `folding/` - インデント・構文ベースのコード折りたたみ
+- [ ] `bracketMatching/` - 対応する括弧のハイライトとジャンプ
+- [ ] `format/` - ドキュメント整形 (`Shift+Alt+F`)
+- [ ] `cursorUndo/` - カーソル移動の Undo/Redo
+
+---
+
+## 4. `src/vs/workbench/` (デスクトップ IDE シェル)
+
+### 4.1 Workbench パーツ構成 (`browser/parts/`)
+- [ ] `activitybar/` - 左端アクティビティバー（ビュー切り替えアイコン）
+- [ ] `sidebar/` - サイドバーコンテナ（エクスプローラー、検索、Git、拡張機能）
+- [ ] `editor/` - エディターパート（タブ管理、左右・上下スプリットグリッド、Diff エディター）
+- [ ] `panel/` - 下部/右側パネル（統合ターミナル、出力、問題一覧、デバッグコンソール）
+- [ ] `statusbar/` - ステータスバー項目管理（Git、行桁、エンコーディング、言語、通知）
+- [ ] `titlebar/` - タイトルバー（メニューバー、QuickOpenトリガー、ウィンドウ操作）
+- [ ] `auxiliarybar/` - セカンダリサイドバー (Chat / AI / Outline)
+
+### 4.2 ワークベンチコアサービス (`services/`)
+- [ ] `editor/common/editorService.ts` - ファイルオープン、タブ切り替え、グループ管理
+- [ ] `textfile/common/textfiles.ts` - テキストファイルの自動保存、エンコーディング変換、Dirty管理
+- [ ] `views/browser/viewsRegistry.ts` - 動的ビューの登録・配置
+- [ ] `panecomposite/` - サイドバー・パネルのタブ切り替え
+
+### 4.3 主要機能コントリビューション (`contrib/`)
+- [ ] `files/` - ファイルエクスプローラー（ツリー展開、ドラッグ&ドロップ、名前変更）
+- [ ] `search/` - プロジェクト全体検索・置換（ripgrep 連携、マルチスレッド）
+- [ ] `scm/` - Git ソース管理（差分ステージング、コミット、ブランチ操作、マージ）
+- [ ] `terminal/` - 統合ターミナル（ConPTY / PTY 連携、複数タブ、スプリット）
+- [ ] `extensions/` - 拡張機能マネージャー（検索、インストール、更新、無効化）
+- [ ] `markdown/` - Markdown リアルタイムプレビュー & 同期スクロール
+- [ ] `quickaccess/` - QuickOpen (`Ctrl+P`), Command Palette (`Ctrl+Shift+P`), Viewers
+- [ ] `preferences/` - GUI / JSON 設定エディター (`settings.json`, `keybindings.json`)
+- [ ] `debug/` - DAP (Debug Adapter Protocol) デバッガ UI (変数、コールスタック、ブレークポイント)
+
+---
+
+## 5. `src/vs/workbench/api/` (Extension Host & VS Code API)
+
+### 5.1 通信プロトコル (`common/`)
+- [ ] `extHostProtocol.ts` - MainThread ↔ ExtHost 間の RPC インターフェース定義
+- [ ] `rpcProtocol.ts` - 引数シリアライズ・プロキシ生成・非同期リクエスト追跡
+
+### 5.2 `vscode.*` API 実装 (`node/` & `common/`)
+- [ ] `extHostCommands.ts` - `vscode.commands`
+- [ ] `extHostWindow.ts` - `vscode.window` (メッセージ、QuickPick、ターミナル、TextEditor)
+- [ ] `extHostWorkspace.ts` - `vscode.workspace` (ドキュメント、設定、FileSystemWatcher)
+- [ ] `extHostLanguages.ts` - `vscode.languages` (補完、ホバー、定義、診断)
+- [ ] `extHostFileSystem.ts` - `vscode.workspace.fs`
+- [ ] `extHostStorage.ts` - `ExtensionContext.globalState / workspaceState`
+- [ ] `extHostExtensionService.ts` - 拡張機能のロード、ライフサイクル、`activate()` 呼び出し
+
+---
+
+## 6. `src/vs/code/` (ネイティブシェル & エントリポイント)
+
+- [ ] `electron-main/app.ts` - アプリケーションライフサイクル、単一インスタンスロック
+- [ ] `electron-main/window.ts` - ネイティブデスクトップウィンドウ作成、DPI、フレームレスウィンドウ
+- [ ] `electron-utility/sharedProcess/` - 拡張機能管理・バックグラウンド処理プロセス
+- [ ] `electron-sandbox/workbench/` - UI レンダリング初期化
+
+---
+
+## 7. `src/vs/server/` (リモート開発基盤)
+
+- [ ] `node/remoteConnection.ts` - SSH / WSL / Container / Tunnel リモート接続
+- [ ] `node/webClientServer.ts` - Web 版 VS Code (vscode.dev) 配信サーバー
+- [ ] `node/cli.ts` - コマンドライン引数パーサー (`code .`, `code --diff a b`)
+
+---
+
+## 8. `extensions/` (標準組み込み拡張機能)
+
+- [ ] `git/` - Git バージョン管理プロバイダー
+- [ ] `markdown-language-features/` - Markdown 構文解析・プレビュー・診断
+- [ ] `theme-defaults/` - Default Dark+, Light+, High Contrast テーマ定義
+- [ ] `configuration-editing/` - `settings.json` / `launch.json` のスキーマ補完
+
+---
+
+## 📝 解析実施ルール
+
+1. 各モジュールのファイル構造、型定義、データフローを `definition` 基準に従って調査する。
+2. 解析完了した項目は本チェックリストをチェック（`[x]`）に更新する。
+3. 解析内容は `docs/design/` および `docs/requirements/` に設計書・要件定義書として体系的に蓄積する。
