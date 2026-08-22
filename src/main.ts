@@ -391,9 +391,23 @@ function initMonacoEditors() {
   const defaultContent = `// 🦀 Welcome to Oxide Editor (VS Code on Tauri v2)!
 // Ultra-fast, Memory-Efficient, Native Desktop IDE.
 
+struct UserProfile {
+    username: String,
+    role: String,
+}
+
+fn calculate_total(a: i32, b: i32) -> i32 {
+    a + b
+}
+
 fn main() {
-    let message = "Hello from VS Code on Tauri v2 (Oxide)!";
-    println!("{}", message);
+    let user = UserProfile {
+        username: String::from("OxideUser"),
+        role: String::from("Developer"),
+    };
+
+    let total = calculate_total(10, 20);
+    println!("User: {}, Total: {}", user.username, total);
 }
 `;
 
@@ -445,6 +459,29 @@ fn main() {
     }
   });
 
+  // Add explicit Go to Definition action to Monaco context menu and F12
+  editor1.addAction({
+    id: "oxide.gotoDefinition",
+    label: "定義へ移動 (Go to Definition)",
+    keybindings: [monaco.KeyCode.F12],
+    contextMenuGroupId: "navigation",
+    contextMenuOrder: 1.5,
+    run: () => {
+      performGoToDefinition();
+    },
+  });
+
+  editor2.addAction({
+    id: "oxide.gotoDefinition",
+    label: "定義へ移動 (Go to Definition)",
+    keybindings: [monaco.KeyCode.F12],
+    contextMenuGroupId: "navigation",
+    contextMenuOrder: 1.5,
+    run: () => {
+      performGoToDefinition();
+    },
+  });
+
   openTabs.set("welcome.rs", {
     path: "welcome.rs",
     name: "welcome.rs",
@@ -454,6 +491,79 @@ fn main() {
   activeFilePath = "welcome.rs";
   ensureLspServerStarted("rust");
   updateTabBar();
+}
+
+// 2.5 Perform Go to Definition (Instant AST & Regex Fallback)
+async function performGoToDefinition() {
+  if (!editor1) return;
+  editor1.focus();
+  const position = editor1.getPosition();
+  const model = editor1.getModel();
+  if (!position || !model) return;
+
+  const word = model.getWordAtPosition(position);
+  if (!word) {
+    showStatusMessage("定義に移動: カーソル位置にシンボル（識別子）がありません");
+    return;
+  }
+
+  const targetSymbol = word.word;
+  showStatusMessage(`定義を検索中: '${targetSymbol}'...`);
+
+  // 1. Check current model for definition
+  const currentMatches = model.findMatches(
+    `\\b(fn|let|struct|enum|trait|class|def|function|const|var|interface|type)\\s+${targetSymbol}\\b`,
+    false,
+    true,
+    false,
+    null,
+    true
+  );
+
+  if (currentMatches.length > 0) {
+    const match = currentMatches[0];
+    editor1.revealRangeInCenter(match.range);
+    editor1.setPosition({ lineNumber: match.range.startLineNumber, column: match.range.startColumn });
+    editor1.setSelection(match.range);
+    showStatusMessage(`📍 定義へジャンプ完了: '${targetSymbol}' (${match.range.startLineNumber}行目)`);
+    return;
+  }
+
+  // 2. Search workspace
+  try {
+    const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
+      query: targetSymbol,
+      caseSensitive: true,
+    });
+
+    const defMatch = workspaceMatches.find((m) => {
+      const line = m.line_text;
+      return (
+        line.includes(`fn ${targetSymbol}`) ||
+        line.includes(`struct ${targetSymbol}`) ||
+        line.includes(`enum ${targetSymbol}`) ||
+        line.includes(`class ${targetSymbol}`) ||
+        line.includes(`def ${targetSymbol}`) ||
+        line.includes(`function ${targetSymbol}`) ||
+        line.includes(`const ${targetSymbol}`) ||
+        line.includes(`let ${targetSymbol}`)
+      );
+    });
+
+    if (defMatch) {
+      await openFile(defMatch.file_path, defMatch.file_path.split("/").pop() || defMatch.file_path);
+      if (editor1) {
+        editor1.revealLineInCenter(defMatch.line_number);
+        editor1.setPosition({ lineNumber: defMatch.line_number, column: 1 });
+        showStatusMessage(`📍 定義へジャンプ完了: '${targetSymbol}' -> ${defMatch.file_path}:${defMatch.line_number}`);
+      }
+      return;
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  showStatusMessage(`'${targetSymbol}' の定義は見つかりませんでした`);
 }
 
 // 3. VS Code Exact Menu System
@@ -569,7 +679,7 @@ function setupVSCodeMenus() {
       { label: "進む", shortcut: "Alt+Right", action: () => editor1?.trigger("menu", "workbench.action.navigateForward", null) },
       { type: "separator" },
       { label: "ファイルへ移動...", shortcut: "Ctrl+P", action: () => openQuickPick(false) },
-      { label: "定義へ移動 (Go to Definition)", shortcut: "F12", action: () => editor1?.trigger("menu", "editor.action.revealDefinition", null) },
+      { label: "定義へ移動 (Go to Definition)", shortcut: "F12", action: () => performGoToDefinition() },
       { label: "定義をここに表示 (Peek Definition)", shortcut: "Alt+F12", action: () => editor1?.trigger("menu", "editor.action.peekDefinition", null) },
       { label: "参照へ移動 (Go to References)", shortcut: "Shift+F12", action: () => editor1?.trigger("menu", "editor.action.referenceSearch.trigger", null) },
       { label: "行/列へ移動...", shortcut: "Ctrl+G", action: () => editor1?.trigger("menu", "editor.action.gotoLine", null) },
