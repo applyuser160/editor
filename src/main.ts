@@ -229,7 +229,8 @@ async function initLanguageServerIntegration() {
         }
 
         // 2. Try LSP server if connected
-        const uri = `file:///${model.uri.path}`;
+        const targetUriPath = activeFilePath || model.uri.path;
+        const uri = `file:///${targetUriPath.replace(/\\/g, "/")}`;
         try {
           const res: any = await invoke("lsp_send_request", {
             lang,
@@ -242,17 +243,20 @@ async function initLanguageServerIntegration() {
 
           if (res) {
             const loc = Array.isArray(res) ? res[0] : res;
-            if (loc && loc.uri && loc.range) {
-              const targetPath = loc.uri.replace("file:///", "");
-              const fileName = targetPath.split("/").pop() || targetPath;
+            const targetUri = loc?.uri || loc?.targetUri;
+            const targetRange = loc?.range || loc?.targetSelectionRange || loc?.targetRange;
+            if (targetUri && targetRange) {
+              const rawPath = targetUri.replace(/^file:\/\/\/?/, "");
+              const targetPath = decodeURIComponent(rawPath);
+              const fileName = targetPath.split(/[/\\]/).pop() || targetPath;
               await openFile(targetPath, fileName);
               return {
-                uri: monaco.Uri.parse(loc.uri),
+                uri: monaco.Uri.parse(targetUri),
                 range: new monaco.Range(
-                  loc.range.start.line + 1,
-                  loc.range.start.character + 1,
-                  loc.range.end.line + 1,
-                  loc.range.end.character + 1
+                  (targetRange.start?.line ?? 0) + 1,
+                  (targetRange.start?.character ?? 0) + 1,
+                  (targetRange.end?.line ?? targetRange.start?.line ?? 0) + 1,
+                  (targetRange.end?.character ?? targetRange.start?.character ?? 0) + 1
                 ),
               };
             }
@@ -554,7 +558,48 @@ async function performGoToDefinition() {
     return;
   }
 
-  // 2. Search workspace
+  // 2. Try LSP server if connected (supports external libraries & standard library)
+  const lang = model.getLanguageId();
+  try {
+    const targetUriPath = activeFilePath || model.uri.path;
+    const uri = `file:///${targetUriPath.replace(/\\/g, "/")}`;
+    const res: any = await invoke("lsp_send_request", {
+      lang,
+      method: "textDocument/definition",
+      params: {
+        textDocument: { uri },
+        position: { line: position.lineNumber - 1, character: position.column - 1 },
+      },
+    });
+
+    if (res) {
+      const loc = Array.isArray(res) ? res[0] : res;
+      const targetUri = loc?.uri || loc?.targetUri;
+      const targetRange = loc?.range || loc?.targetSelectionRange || loc?.targetRange;
+      if (targetUri && targetRange) {
+        const rawPath = targetUri.replace(/^file:\/\/\/?/, "");
+        const targetPath = decodeURIComponent(rawPath);
+        const fileName = targetPath.split(/[/\\]/).pop() || targetPath;
+        await openFile(targetPath, fileName);
+        if (editor1) {
+          const line = (targetRange.start?.line ?? 0) + 1;
+          const col = (targetRange.start?.character ?? 0) + 1;
+          const endLine = (targetRange.end?.line ?? targetRange.start?.line ?? 0) + 1;
+          const endCol = (targetRange.end?.character ?? targetRange.start?.character ?? 0) + 1;
+          const range = new monaco.Range(line, col, endLine, endCol);
+          editor1.revealRangeInCenter(range);
+          editor1.setPosition({ lineNumber: line, column: col });
+          editor1.setSelection(range);
+          showStatusMessage(`📍 定義へジャンプ完了 (LSP): '${targetSymbol}' -> ${fileName}:${line}`);
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    // Fallback to workspace symbol search
+  }
+
+  // 3. Fallback: Search workspace
   try {
     const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
       query: targetSymbol,
