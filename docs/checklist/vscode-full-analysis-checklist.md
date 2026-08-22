@@ -8,96 +8,96 @@
 
 | レイヤー / サブシステム | 対象元パス (`src/vs/`) | 解析項目数 | 完了数 | 進捗率 |
 | :--- | :--- | :---: | :---: | :---: |
-| **1. Base レイヤー** | `src/vs/base/` | 42 | 0 | 0% |
-| **2. Platform サービス層** | `src/vs/platform/` | 58 | 0 | 0% |
+| **1. Base レイヤー** | `src/vs/base/` | 42 | 42 | 100% |
+| **2. Platform サービス層** | `src/vs/platform/` | 58 | 58 | 100% |
 | **3. Monaco Editor コア** | `src/vs/editor/` | 64 | 0 | 0% |
 | **4. Workbench UI / Shell** | `src/vs/workbench/` | 86 | 0 | 0% |
 | **5. Extension Host 基盤** | `src/vs/workbench/api/` | 38 | 0 | 0% |
 | **6. Native Shell / Lifecycle**| `src/vs/code/` | 24 | 0 | 0% |
 | **7. Remote / Server** | `src/vs/server/` | 18 | 0 | 0% |
 | **8. Built-in Extensions** | `extensions/` | 30 | 0 | 0% |
-| **合計** | -- | **360** | **0** | **0%** |
+| **合計** | -- | **360** | **100** | **27.8%** |
 
 ---
 
 ## 1. `src/vs/base/` (共通基盤・ユーティリティ層)
 
 ### 1.1 `src/vs/base/common/` (環境非依存コア)
-- [ ] `lifecycle.ts` - `IDisposable`, `DisposableStore`, `MutableDisposable`, 参照カウント
-- [ ] `event.ts` - `Event<T>`, `Emitter<T>`, `AsyncEmitter`, `Relay`, イベントフィルタ・マップ
-- [ ] `cancellation.ts` - `CancellationToken`, `CancellationTokenSource`
-- [ ] `async.ts` - `DeferredPromise`, `Throttler`, `Delayer`, `Limiter`, `Barrier`, `Queue`
-- [ ] `buffer.ts` - `VSBuffer` (スライス・コピー・UTF-8変換・ストリーム)
-- [ ] `uri.ts` - `URI` (スキーム、パス、クエリ、フラグメント、fsPath正規化)
-- [ ] `path.ts` - POSIX / Windows パス相互変換・結合・正規化
-- [ ] `strings.ts` - UTF-16 / UTF-8 文字列操作、サロゲートペア、エスケープ
-- [ ] `arrays.ts` - 二分探索、挿入、差分抽出、重複排除
-- [ ] `map.ts` - `TernarySearchTree`, `LRUCache`, `ResourceMap`, `LinkedMap`
-- [ ] `prefixTree.ts` - プレフィックス検索木
-- [ ] `hash.ts` - SHA-1, Murmur3, FNV ハッシュ計算
-- [ ] `uuid.ts` - UUID v4 生成
-- [ ] `errors.ts` - 構造化例外ハンドリング、キャンセルエラー判定
-- [ ] `observable.ts` - リアクティブステート管理 (`observableValue`, `derived`, `autorun`)
-- [ ] `network.ts` - スキーム定義 (`file`, `vscode-remote`, `vscode-webview`, etc.)
-- [ ] `diff/` - 文字列・配列の最長共通部分列 (LCS) / Myers 差分アルゴリズム
-- [ ] `json.ts` - コメント付き JSON (JSONC) パーサー・フォーマッター
-- [ ] `semver/` - セマンティックバージョニングパース・比較
+- [x] `lifecycle.ts` - `IDisposable`, `DisposableStore`, `MutableDisposable`, 参照カウント
+- [x] `event.ts` - `Event<T>`, `Emitter<T>`, `AsyncEmitter`, `Relay`, イベントフィルタ・マップ
+- [x] `cancellation.ts` - `CancellationToken`, `CancellationTokenSource`
+- [x] `async.ts` - `DeferredPromise`, `Throttler`, `Delayer`, `Limiter`, `Barrier`, `Queue`
+- [x] `buffer.ts` - `VSBuffer` (スライス・コピー・UTF-8変換・ストリーム)
+- [x] `uri.ts` - `URI` (スキーム、パス、クエリ、フラグメント、fsPath正規化)
+- [x] `path.ts` - POSIX / Windows パス相互変換・結合・正規化
+- [x] `strings.ts` - UTF-16 / UTF-8 文字列操作、サロゲートペア、エスケープ
+- [x] `arrays.ts` - 二分探索、挿入、差分抽出、重複排除
+- [x] `map.ts` - `TernarySearchTree`, `LRUCache`, `ResourceMap`, `LinkedMap`
+- [x] `prefixTree.ts` - プレフィックス検索木
+- [x] `hash.ts` - SHA-1, Murmur3, FNV ハッシュ計算
+- [x] `uuid.ts` - UUID v4 生成
+- [x] `errors.ts` - 構造化例外ハンドリング、キャンセルエラー判定
+- [x] `observable.ts` - リアクティブステート管理 (`observableValue`, `derived`, `autorun`)
+- [x] `network.ts` - スキーム定義 (`file`, `vscode-remote`, `vscode-webview`, etc.)
+- [x] `diff/` - 文字列・配列の最長共通部分列 (LCS) / Myers 差分アルゴリズム
+- [x] `json.ts` - コメント付き JSON (JSONC) パーサー・フォーマッター
+- [x] `semver/` - セマンティックバージョニングパース・比較
 
 ### 1.2 `src/vs/base/browser/` (ブラウザ・UI基本部品)
-- [ ] `dom.ts` - ウィンドウ・エレメント作成・リサイズ・イベント委譲
-- [ ] `keyboardEvent.ts` - キーコード、モディファイアキー (Ctrl/Cmd, Shift, Alt) 変換
-- [ ] `mouseEvent.ts` - マウスクリック、ホイール、ドラッグ&ドロップイベント
-- [ ] `touch.ts` - タッチジェスチャー
-- [ ] `ui/widget/` - スクロールバー (`scrollbar/`), リスト (`list/`), ツリー (`tree/`)
-- [ ] `ui/contextview/` - コンテキストメニュー、ドロップダウン表示レイアウト
-- [ ] `ui/splitview/` - スプリットビュー（水平・垂直リサイズ分割）
-- [ ] `ui/grid/` - 2次元グリッドレイアウトエンジン (エディター分割の根幹)
-- [ ] `window.ts` - ウィンドウフォーカス、DPI スケール変更ハンドラ
+- [x] `dom.ts` - ウィンドウ・エレメント作成・リサイズ・イベント委譲
+- [x] `keyboardEvent.ts` - キーコード、モディファイアキー (Ctrl/Cmd, Shift, Alt) 変換
+- [x] `mouseEvent.ts` - マウスクリック、ホイール、ドラッグ&ドロップイベント
+- [x] `touch.ts` - タッチジェスチャー
+- [x] `ui/widget/` - スクロールバー (`scrollbar/`), リスト (`list/`), ツリー (`tree/`)
+- [x] `ui/contextview/` - コンテキストメニュー、ドロップダウン表示レイアウト
+- [x] `ui/splitview/` - スプリットビュー（水平・垂直リサイズ分割）
+- [x] `ui/grid/` - 2次元グリッドレイアウトエンジン (エディター分割の根幹)
+- [x] `window.ts` - ウィンドウフォーカス、DPI スケール変更ハンドラ
 
 ### 1.3 `src/vs/base/node/` (OS・ファイルシステム・プロセス基盤)
-- [ ] `pfs.ts` - ノンブロッキング非同期ファイル操作 (`rimraf`, `mkdirp`, `readlink`)
-- [ ] `extfs.ts` - 高速ディレクトリ再帰スキャン
-- [ ] `ps.ts` - OS プロセスツリー走査・子プロセス監視
-- [ ] `ports.ts` - 利用可能ポート探索
-- [ ] `zip.ts` - `.vsix` / ZIP パッケージ展開・圧縮
-- [ ] `processes.ts` - 環境変数マージ、サブプロセス起動
+- [x] `pfs.ts` - ノンブロッキング非同期ファイル操作 (`rimraf`, `mkdirp`, `readlink`)
+- [x] `extfs.ts` - 高速ディレクトリ再帰スキャン
+- [x] `ps.ts` - OS プロセスツリー走査・子プロセス監視
+- [x] `ports.ts` - 利用可能ポート探索
+- [x] `zip.ts` - `.vsix` / ZIP パッケージ展開・圧縮
+- [x] `processes.ts` - 環境変数マージ、サブプロセス起動
 
 ### 1.4 `src/vs/base/parts/ipc/` (プロセス間通信)
-- [ ] `common/ipc.ts` - `IChannel`, `IChannelClient`, `IChannelServer`, 双方向メッセージプロトコル
-- [ ] `node/ipc.net.ts` - Socket / Named Pipe による高速バイナリ IPC
-- [ ] `electron-main/` - Electron IPCBridge エミュレーション
+- [x] `common/ipc.ts` - `IChannel`, `IChannelClient`, `IChannelServer`, 双方向メッセージプロトコル
+- [x] `node/ipc.net.ts` - Socket / Named Pipe による高速バイナリ IPC
+- [x] `electron-main/` - Electron IPCBridge エミュレーション
 
 ---
 
 ## 2. `src/vs/platform/` (依存性注入 & プラットフォームサービス)
 
 ### 2.1 サービスコンテナ & コア基盤
-- [ ] `instantiation/` - `createDecorator`, `ServiceCollection`, `InstantiationService` (DIエンジン)
-- [ ] `configuration/` - `IConfigurationService`, `settings.json` の継承・マージ・検証
-- [ ] `contextkey/` - `IContextKeyService`, `when` 句の AST 構文解析・動的評価
-- [ ] `commands/` - `ICommandService`, `CommandsRegistry` (全コマンドの中央登録所)
-- [ ] `keybinding/` - `IKeybindingService`, `KeybindingResolver` (キーバインド解決)
-- [ ] `actions/` - `MenuRegistry`, `IMenuService` (メニューバー・コンテキストメニュー統合)
+- [x] `instantiation/` - `createDecorator`, `ServiceCollection`, `InstantiationService` (DIエンジン)
+- [x] `configuration/` - `IConfigurationService`, `settings.json` の継承・マージ・検証
+- [x] `contextkey/` - `IContextKeyService`, `when` 句の AST 構文解析・動的評価
+- [x] `commands/` - `ICommandService`, `CommandsRegistry` (全コマンドの中央登録所)
+- [x] `keybinding/` - `IKeybindingService`, `KeybindingResolver` (キーバインド解決)
+- [x] `actions/` - `MenuRegistry`, `IMenuService` (メニューバー・コンテキストメニュー統合)
 
 ### 2.2 ファイル & ストレージ
-- [ ] `files/` - `IFileService`, `IFileSystemProvider` (ローカル、リモート、メモリ抽象化)
-- [ ] `files/node/watcher/` - ファイルシステム変更監視 (`notify` 連携, `.gitignore` 考慮)
-- [ ] `storage/` - `IStorageService`, グローバル & ワークスペース SQLite/JSON キャッシュ
+- [x] `files/` - `IFileService`, `IFileSystemProvider` (ローカル、リモート、メモリ抽象化)
+- [x] `files/node/watcher/` - ファイルシステム変更監視 (`notify` 連携, `.gitignore` 考慮)
+- [x] `storage/` - `IStorageService`, グローバル & ワークスペース SQLite/JSON キャッシュ
 
 ### 2.3 UI・ウィンドウ制御サービス
-- [ ] `dialogs/` - `IDialogService` (確認ダイアログ、ファイルオープン/保存ダイアログ)
-- [ ] `notification/` - `INotificationService` (情報/警告/エラー通知トースト)
-- [ ] `quickinput/` - `IQuickInputService` (QuickPick, InputBox モーダル)
-- [ ] `theme/` - `IThemeService`, TextMate / VS Code カラースキーマレジストリ
-- [ ] `layout/` - `ILayoutService` (ウィンドウ全体領域分割・リサイズ制御)
-- [ ] `opener/` - `IOpenerService` (外部URL、内部ファイル、カスタムスキーム遷移)
-- [ ] `clipboard/` - `IClipboardService` (システムクリップボード読み書き)
+- [x] `dialogs/` - `IDialogService` (確認ダイアログ、ファイルオープン/保存ダイアログ)
+- [x] `notification/` - `INotificationService` (情報/警告/エラー通知トースト)
+- [x] `quickinput/` - `IQuickInputService` (QuickPick, InputBox モーダル)
+- [x] `theme/` - `IThemeService`, TextMate / VS Code カラースキーマレジストリ
+- [x] `layout/` - `ILayoutService` (ウィンドウ全体領域分割・リサイズ制御)
+- [x] `opener/` - `IOpenerService` (外部URL、内部ファイル、カスタムスキーム遷移)
+- [x] `clipboard/` - `IClipboardService` (システムクリップボード読み書き)
 
 ### 2.4 環境・端末サービス
-- [ ] `terminal/` - `ITerminalService`, `ITerminalProfileService`, PTY プロセスライフサイクル
-- [ ] `workspace/` - `IWorkspaceContextService` (単一フォルダ / マルチルートワークスペース)
-- [ ] `environment/` - `IEnvironmentService` (パス、ユーザーデータ、拡張機能ディレクトリ設定)
-- [ ] `log/` - `ILogService` (階層型ロガー、ログレベル制御)
+- [x] `terminal/` - `ITerminalService`, `ITerminalProfileService`, PTY プロセスライフサイクル
+- [x] `workspace/` - `IWorkspaceContextService` (単一フォルダ / マルチルートワークスペース)
+- [x] `environment/` - `IEnvironmentService` (パス、ユーザーデータ、拡張機能ディレクトリ設定)
+- [x] `log/` - `ILogService` (階層型ロガー、ログレベル制御)
 
 ---
 
