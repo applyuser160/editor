@@ -486,6 +486,114 @@ fn get_absolute_path(path_str: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
+pub async fn find_rust_stdlib_definition(symbol: String) -> Result<Option<SearchMatch>, String> {
+    let output = Command::new("rustc")
+        .arg("--print")
+        .arg("sysroot")
+        .output();
+
+    let sysroot = match output {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        _ => return Ok(None),
+    };
+
+    let stdlib_path = Path::new(&sysroot)
+        .join("lib")
+        .join("rustlib")
+        .join("src")
+        .join("rust")
+        .join("library");
+
+    if !stdlib_path.exists() {
+        return Ok(None);
+    }
+
+    let target_crates = ["alloc", "core", "std"];
+    let patterns = [
+        format!("pub struct {} ", symbol),
+        format!("pub struct {}<", symbol),
+        format!("pub struct {}{{", symbol),
+        format!("pub struct {}\n", symbol),
+        format!("pub struct {}\r", symbol),
+        format!("pub enum {} ", symbol),
+        format!("pub enum {}<", symbol),
+        format!("pub enum {}{{", symbol),
+        format!("pub trait {} ", symbol),
+        format!("pub trait {}<", symbol),
+        format!("pub trait {}{{", symbol),
+        format!("pub type {} ", symbol),
+        format!("pub type {}<", symbol),
+        format!("pub type {}=", symbol),
+        format!("pub fn {} ", symbol),
+        format!("pub fn {}<", symbol),
+        format!("pub fn {}(", symbol),
+    ];
+
+    for crate_name in &target_crates {
+        let src_dir = stdlib_path.join(crate_name).join("src");
+        if !src_dir.exists() {
+            continue;
+        }
+
+        let direct_file = src_dir.join(format!("{}.rs", symbol.to_lowercase()));
+        if direct_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&direct_file) {
+                for (idx, line) in content.lines().enumerate() {
+                    let trimmed = line.trim();
+                    if patterns.iter().any(|pat| trimmed.starts_with(pat.trim())) {
+                        return Ok(Some(SearchMatch {
+                            file_path: direct_file.to_string_lossy().to_string(),
+                            line_number: idx + 1,
+                            line_text: line.to_string(),
+                        }));
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = walk_rs_files(&src_dir) {
+            for entry in entries {
+                if let Ok(content) = std::fs::read_to_string(&entry) {
+                    if !content.contains(&symbol) {
+                        continue;
+                    }
+                    for (idx, line) in content.lines().enumerate() {
+                        let trimmed = line.trim();
+                        if patterns.iter().any(|pat| trimmed.starts_with(pat.trim())) {
+                            return Ok(Some(SearchMatch {
+                                file_path: entry.to_string_lossy().to_string(),
+                                line_number: idx + 1,
+                                line_text: line.to_string(),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(walk_rs_files(&path)?);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                files.push(path);
+            }
+        }
+    }
+    Ok(files)
+}
+
+#[tauri::command]
 pub async fn execute_terminal_command(command: String) -> Result<String, String> {
     let trimmed = command.trim();
     if trimmed.is_empty() {
@@ -516,5 +624,32 @@ pub async fn execute_terminal_command(command: String) -> Result<String, String>
             }
         }
         Err(e) => Err(format!("Command execution failed: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_find_string_definition() {
+        let res = find_rust_stdlib_definition("String".to_string()).await.unwrap();
+        assert!(res.is_some(), "Expected to find definition for String in stdlib");
+        let match_res = res.unwrap();
+        assert!(
+            match_res.file_path.ends_with("string.rs"),
+            "Expected file to be string.rs, got: {}",
+            match_res.file_path
+        );
+        assert_eq!(match_res.line_number, 360, "Expected line number 360 for String struct");
+        println!("✔ Found String definition at: {}:{}", match_res.file_path, match_res.line_number);
+    }
+
+    #[tokio::test]
+    async fn test_find_vec_definition() {
+        let res = find_rust_stdlib_definition("Vec".to_string()).await.unwrap();
+        assert!(res.is_some(), "Expected to find definition for Vec in stdlib");
+        let match_res = res.unwrap();
+        println!("✔ Found Vec definition at: {}:{}", match_res.file_path, match_res.line_number);
     }
 }

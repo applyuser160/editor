@@ -50,6 +50,7 @@ pub fn run() {
             commands::rename_file,
             commands::get_file_stat,
             commands::search_in_workspace,
+            commands::find_rust_stdlib_definition,
             commands::git_get_status,
             commands::git_commit,
             commands::execute_terminal_command

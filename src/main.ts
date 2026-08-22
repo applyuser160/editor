@@ -265,7 +265,32 @@ async function initLanguageServerIntegration() {
           // Fallback to workspace symbol search
         }
 
-        // 3. Search other files in workspace
+        // 3. Check Rust Standard Library (e.g. String, Vec, Option, Result, etc.)
+        if (lang === "rust") {
+          try {
+            const stdlibMatch = await invoke<SearchMatch | null>("find_rust_stdlib_definition", {
+              symbol: targetSymbol,
+            });
+            if (stdlibMatch) {
+              const fileName = stdlibMatch.file_path.split(/[/\\]/).pop() || stdlibMatch.file_path;
+              await openFile(stdlibMatch.file_path, fileName);
+              const targetTab = openTabs.get(stdlibMatch.file_path);
+              if (targetTab) {
+                return {
+                  uri: targetTab.model.uri,
+                  range: new monaco.Range(
+                    stdlibMatch.line_number,
+                    1,
+                    stdlibMatch.line_number,
+                    targetSymbol.length + 1
+                  ),
+                };
+              }
+            }
+          } catch (e) {}
+        }
+
+        // 4. Search other files in workspace
         try {
           const matches = await invoke<SearchMatch[]>("search_in_workspace", {
             query: targetSymbol,
@@ -599,7 +624,33 @@ async function performGoToDefinition() {
     // Fallback to workspace symbol search
   }
 
-  // 3. Fallback: Search workspace
+  // 3. Check Rust Standard Library (e.g. String, Vec, Option, Result, etc.)
+  if (lang === "rust") {
+    try {
+      const stdlibMatch = await invoke<SearchMatch | null>("find_rust_stdlib_definition", {
+        symbol: targetSymbol,
+      });
+      if (stdlibMatch) {
+        const fileName = stdlibMatch.file_path.split(/[/\\]/).pop() || stdlibMatch.file_path;
+        await openFile(stdlibMatch.file_path, fileName);
+        if (editor1) {
+          editor1.revealLineInCenter(stdlibMatch.line_number);
+          editor1.setPosition({ lineNumber: stdlibMatch.line_number, column: 1 });
+          const range = new monaco.Range(
+            stdlibMatch.line_number,
+            1,
+            stdlibMatch.line_number,
+            targetSymbol.length + 1
+          );
+          editor1.setSelection(range);
+          showStatusMessage(`📍 定義へジャンプ完了 (Rust Stdlib): '${targetSymbol}' -> ${fileName}:${stdlibMatch.line_number}`);
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 4. Fallback: Search workspace
   try {
     const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
       query: targetSymbol,
