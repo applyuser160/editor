@@ -10,13 +10,13 @@
 | :--- | :--- | :---: | :---: | :---: |
 | **1. Base レイヤー** | `src/vs/base/` | 42 | 42 | 100% |
 | **2. Platform サービス層** | `src/vs/platform/` | 58 | 58 | 100% |
-| **3. Monaco Editor コア** | `src/vs/editor/` | 64 | 0 | 0% |
-| **4. Workbench UI / Shell** | `src/vs/workbench/` | 86 | 0 | 0% |
-| **5. Extension Host 基盤** | `src/vs/workbench/api/` | 38 | 0 | 0% |
+| **3. Monaco Editor コア** | `src/vs/editor/` | 64 | 64 | 100% |
+| **4. Workbench UI / Shell** | `src/vs/workbench/` | 86 | 86 | 100% |
+| **5. Extension Host 基盤** | `src/vs/workbench/api/` | 38 | 38 | 100% |
 | **6. Native Shell / Lifecycle**| `src/vs/code/` | 24 | 0 | 0% |
 | **7. Remote / Server** | `src/vs/server/` | 18 | 0 | 0% |
 | **8. Built-in Extensions** | `extensions/` | 30 | 0 | 0% |
-| **合計** | -- | **360** | **100** | **27.8%** |
+| **合計** | -- | **360** | **288** | **80.0%** |
 
 ---
 
@@ -104,81 +104,81 @@
 ## 3. `src/vs/editor/` (Monaco Editor コア)
 
 ### 3.1 テキストモデル & バッファ
-- [ ] `common/model/textModel.ts` - テキストモデル本体、イベント、行アクセス
-- [ ] `common/model/pieceTreeTextBuffer/` - Piece Table / Piece Tree データ構造
-- [ ] `common/model/editStack.ts` - Undo / Redo スタック、トランザクション管理
-- [ ] `common/core/position.ts` - `Position(lineNumber, column)`
-- [ ] `common/core/range.ts` - `Range(startLine, startCol, endLine, endCol)`
-- [ ] `common/core/selection.ts` - マルチカーソル・選択範囲管理
-- [ ] `common/core/lineTokens.ts` - 行トークン列・スタイルキャッシュ
+- [x] `common/model/textModel.ts` - テキストモデル本体、イベント、行アクセス
+- [x] `common/model/pieceTreeTextBuffer/` - Piece Table / Piece Tree データ構造
+- [x] `common/model/editStack.ts` - Undo / Redo スタック、トランザクション管理
+- [x] `common/core/position.ts` - `Position(lineNumber, column)`
+- [x] `common/core/range.ts` - `Range(startLine, startCol, endLine, endCol)`
+- [x] `common/core/selection.ts` - マルチカーソル・選択範囲管理
+- [x] `common/core/lineTokens.ts` - 行トークン列・スタイルキャッシュ
 
 ### 3.2 構文解析・トークナイズ
-- [ ] `common/languages/` - 言語定義、構文ルール、コメント設定、ブラケット定義
-- [ ] `common/tokens/` - TextMate Grammars インターフェース
-- [ ] `common/services/semanticTokensProvider.ts` - LSP セマンティックハイライト
+- [x] `common/languages/` - 言語定義、構文ルール、コメント設定、ブラケット定義
+- [x] `common/tokens/` - TextMate Grammars インターフェース
+- [x] `common/services/semanticTokensProvider.ts` - LSP セマンティックハイライト
 
 ### 3.3 ビューレンダリング & デコレーター
-- [ ] `browser/view/viewLines.ts` - 画面内可視行の仮想スクロール描画
-- [ ] `browser/view/viewGutter.ts` - 行番号、ブレークポイント、折りたたみアイコン
-- [ ] `browser/view/minimap/` - ミニマップ高速描画エンジン
-- [ ] `common/model/textModelDecorations.ts` - インライン波線、Git ガターマーカー、ハイライト
+- [x] `browser/view/viewLines.ts` - 画面内可視行の仮想スクロール描画
+- [x] `browser/view/viewGutter.ts` - 行番号、ブレークポイント、折りたたみアイコン
+- [x] `browser/view/minimap/` - ミニマップ高速描画エンジン
+- [x] `common/model/textModelDecorations.ts` - インライン波線、Git ガターマーカー、ハイライト
 
 ### 3.4 エディター拡張機能 (`contrib/`)
-- [ ] `find/` - バッファ内検索・置換（正規表現、大文字小文字、単語全体一致）
-- [ ] `suggest/` - IntelliSense コード補完ポップアップ & キーボードナビゲーション
-- [ ] `hover/` - 型情報・ドキュメントホバー
-- [ ] `gotoSymbol/` - 定義へジャンプ (`F12`), 参照の検索 (`Shift+F12`)
-- [ ] `folding/` - インデント・構文ベースのコード折りたたみ
-- [ ] `bracketMatching/` - 対応する括弧のハイライトとジャンプ
-- [ ] `format/` - ドキュメント整形 (`Shift+Alt+F`)
-- [ ] `cursorUndo/` - カーソル移動の Undo/Redo
+- [x] `find/` - バッファ内検索・置換（正規表現、大文字小文字、単語全体一致）
+- [x] `suggest/` - IntelliSense コード補完ポップアップ & キーボードナビゲーション
+- [x] `hover/` - 型情報・ドキュメントホバー
+- [x] `gotoSymbol/` - 定義へジャンプ (`F12`), 参照の検索 (`Shift+F12`)
+- [x] `folding/` - インデント・構文ベースのコード折りたたみ
+- [x] `bracketMatching/` - 対応する括弧のハイライトとジャンプ
+- [x] `format/` - ドキュメント整形 (`Shift+Alt+F`)
+- [x] `cursorUndo/` - カーソル移動の Undo/Redo
 
 ---
 
 ## 4. `src/vs/workbench/` (デスクトップ IDE シェル)
 
 ### 4.1 Workbench パーツ構成 (`browser/parts/`)
-- [ ] `activitybar/` - 左端アクティビティバー（ビュー切り替えアイコン）
-- [ ] `sidebar/` - サイドバーコンテナ（エクスプローラー、検索、Git、拡張機能）
-- [ ] `editor/` - エディターパート（タブ管理、左右・上下スプリットグリッド、Diff エディター）
-- [ ] `panel/` - 下部/右側パネル（統合ターミナル、出力、問題一覧、デバッグコンソール）
-- [ ] `statusbar/` - ステータスバー項目管理（Git、行桁、エンコーディング、言語、通知）
-- [ ] `titlebar/` - タイトルバー（メニューバー、QuickOpenトリガー、ウィンドウ操作）
-- [ ] `auxiliarybar/` - セカンダリサイドバー (Chat / AI / Outline)
+- [x] `activitybar/` - 左端アクティビティバー（ビュー切り替えアイコン）
+- [x] `sidebar/` - サイドバーコンテナ（エクスプローラー、検索、Git、拡張機能）
+- [x] `editor/` - エディターパート（タブ管理、左右・上下スプリットグリッド、Diff エディター）
+- [x] `panel/` - 下部/右側パネル（統合ターミナル、出力、問題一覧、デバッグコンソール）
+- [x] `statusbar/` - ステータスバー項目管理（Git、行桁、エンコーディング、言語、通知）
+- [x] `titlebar/` - タイトルバー（メニューバー、QuickOpenトリガー、ウィンドウ操作）
+- [x] `auxiliarybar/` - セカンダリサイドバー (Chat / AI / Outline)
 
 ### 4.2 ワークベンチコアサービス (`services/`)
-- [ ] `editor/common/editorService.ts` - ファイルオープン、タブ切り替え、グループ管理
-- [ ] `textfile/common/textfiles.ts` - テキストファイルの自動保存、エンコーディング変換、Dirty管理
-- [ ] `views/browser/viewsRegistry.ts` - 動的ビューの登録・配置
-- [ ] `panecomposite/` - サイドバー・パネルのタブ切り替え
+- [x] `editor/common/editorService.ts` - ファイルオープン、タブ切り替え、グループ管理
+- [x] `textfile/common/textfiles.ts` - テキストファイルの自動保存、エンコーディング変換、Dirty管理
+- [x] `views/browser/viewsRegistry.ts` - 動的ビューの登録・配置
+- [x] `panecomposite/` - サイドバー・パネルのタブ切り替え
 
 ### 4.3 主要機能コントリビューション (`contrib/`)
-- [ ] `files/` - ファイルエクスプローラー（ツリー展開、ドラッグ&ドロップ、名前変更）
-- [ ] `search/` - プロジェクト全体検索・置換（ripgrep 連携、マルチスレッド）
-- [ ] `scm/` - Git ソース管理（差分ステージング、コミット、ブランチ操作、マージ）
-- [ ] `terminal/` - 統合ターミナル（ConPTY / PTY 連携、複数タブ、スプリット）
-- [ ] `extensions/` - 拡張機能マネージャー（検索、インストール、更新、無効化）
-- [ ] `markdown/` - Markdown リアルタイムプレビュー & 同期スクロール
-- [ ] `quickaccess/` - QuickOpen (`Ctrl+P`), Command Palette (`Ctrl+Shift+P`), Viewers
-- [ ] `preferences/` - GUI / JSON 設定エディター (`settings.json`, `keybindings.json`)
-- [ ] `debug/` - DAP (Debug Adapter Protocol) デバッガ UI (変数、コールスタック、ブレークポイント)
+- [x] `files/` - ファイルエクスプローラー（ツリー展開、ドラッグ&ドロップ、名前変更）
+- [x] `search/` - プロジェクト全体検索・置換（ripgrep 連携、マルチスレッド）
+- [x] `scm/` - Git ソース管理（差分ステージング、コミット、ブランチ操作、マージ）
+- [x] `terminal/` - 統合ターミナル（ConPTY / PTY 連携、複数タブ、スプリット）
+- [x] `extensions/` - 拡張機能マネージャー（検索、インストール、更新、無効化）
+- [x] `markdown/` - Markdown リアルタイムプレビュー & 同期スクロール
+- [x] `quickaccess/` - QuickOpen (`Ctrl+P`), Command Palette (`Ctrl+Shift+P`), Viewers
+- [x] `preferences/` - GUI / JSON 設定エディター (`settings.json`, `keybindings.json`)
+- [x] `debug/` - DAP (Debug Adapter Protocol) デバッガ UI (変数、コールスタック、ブレークポイント)
 
 ---
 
 ## 5. `src/vs/workbench/api/` (Extension Host & VS Code API)
 
 ### 5.1 通信プロトコル (`common/`)
-- [ ] `extHostProtocol.ts` - MainThread ↔ ExtHost 間の RPC インターフェース定義
-- [ ] `rpcProtocol.ts` - 引数シリアライズ・プロキシ生成・非同期リクエスト追跡
+- [x] `extHostProtocol.ts` - MainThread ↔ ExtHost 間の RPC インターフェース定義
+- [x] `rpcProtocol.ts` - 引数シリアライズ・プロキシ生成・非同期リクエスト追跡
 
 ### 5.2 `vscode.*` API 実装 (`node/` & `common/`)
-- [ ] `extHostCommands.ts` - `vscode.commands`
-- [ ] `extHostWindow.ts` - `vscode.window` (メッセージ、QuickPick、ターミナル、TextEditor)
-- [ ] `extHostWorkspace.ts` - `vscode.workspace` (ドキュメント、設定、FileSystemWatcher)
-- [ ] `extHostLanguages.ts` - `vscode.languages` (補完、ホバー、定義、診断)
-- [ ] `extHostFileSystem.ts` - `vscode.workspace.fs`
-- [ ] `extHostStorage.ts` - `ExtensionContext.globalState / workspaceState`
-- [ ] `extHostExtensionService.ts` - 拡張機能のロード、ライフサイクル、`activate()` 呼び出し
+- [x] `extHostCommands.ts` - `vscode.commands`
+- [x] `extHostWindow.ts` - `vscode.window` (メッセージ、QuickPick、ターミナル、TextEditor)
+- [x] `extHostWorkspace.ts` - `vscode.workspace` (ドキュメント、設定、FileSystemWatcher)
+- [x] `extHostLanguages.ts` - `vscode.languages` (補完、ホバー、定義、診断)
+- [x] `extHostFileSystem.ts` - `vscode.workspace.fs`
+- [x] `extHostStorage.ts` - `ExtensionContext.globalState / workspaceState`
+- [x] `extHostExtensionService.ts` - 拡張機能のロード、ライフサイクル、`activate()` 呼び出し
 
 ---
 
