@@ -51,8 +51,11 @@ interface ExtensionManifest {
   name: string;
   version: string;
   description: string;
+  main?: string | null;
+  activation_events?: string[];
   contributes_languages: string[];
   contributes_themes: string[];
+  enabled: boolean;
 }
 
 interface OpenVsxExtension {
@@ -2364,9 +2367,23 @@ async function renderExtensionsView(container: HTMLElement) {
           </div>
           <div class="openvsx-ext-desc">${ext.description}</div>
           <div class="openvsx-ext-footer">
-            <span style="font-size: 10px; color: #00ff80;">● 有効 (Active)</span>
+            <span style="font-size: 10px; color: ${ext.enabled ? "#00ff80" : "#888"};">● ${ext.enabled ? "有効 (Active)" : "無効 (Disabled)"}</span>
+            <button class="btn-toggle-ext" data-id="${ext.id}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
           </div>
         `;
+        const toggleButton = card.querySelector<HTMLButtonElement>(".btn-toggle-ext");
+        toggleButton?.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          toggleButton.disabled = true;
+          try {
+            await invoke("set_extension_enabled", { id: ext.id, enabled: !ext.enabled });
+            await renderExtensionsView(container);
+          } catch (error) {
+            showToast(`拡張機能の状態を変更できませんでした: ${error}`, "error");
+            toggleButton.disabled = false;
+          }
+        });
+
         card.addEventListener("click", () => {
           const fakeOpenVsxExt: OpenVsxExtension = {
             namespace: ext.id.split('.')[0] || '',

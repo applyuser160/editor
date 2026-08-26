@@ -224,8 +224,8 @@ pub async fn install_openvsx_extension(
     state: State<'_, ExtensionHostState>,
     namespace: String,
     name: String,
-    version: String,
-    description: String,
+    _version: String,
+    _description: String,
     download_url: Option<String>,
 ) -> Result<String, String> {
     let id = format!("{}.{}", namespace, name);
@@ -236,47 +236,27 @@ pub async fn install_openvsx_extension(
         }
     }
 
-    // Open VSXから取得したHTTPSダウンロードURLだけを受け付け、サイズを制限する。
-    if let Some(url) = download_url {
-        validate_openvsx_download_url(&url)?;
-        let client = reqwest::Client::new();
-        let resp = client.get(&url).send().await.map_err(|e| format!("Failed to download: {}", e))?;
-        if !resp.status().is_success() {
-            return Err(format!("Extension download returned HTTP {}", resp.status()));
-        }
-        if let Some(content_length) = resp.content_length() {
-            if content_length > MAX_EXTENSION_DOWNLOAD_BYTES {
-                return Err(format!("Extension exceeds the {} MiB download limit", MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024));
-            }
-        }
-
-        let bytes = resp.bytes().await.map_err(|e| format!("Failed to read bytes: {}", e))?;
-        if bytes.len() as u64 > MAX_EXTENSION_DOWNLOAD_BYTES {
+    let url = download_url.ok_or_else(|| "Open VSX did not provide a VSIX download URL".to_string())?;
+    validate_openvsx_download_url(&url)?;
+    let client = reqwest::Client::builder().user_agent("Oxide-Editor/0.1.0").build()
+        .map_err(|error| error.to_string())?;
+    let response = client.get(&url).send().await
+        .map_err(|error| format!("Failed to download: {}", error))?;
+    if !response.status().is_success() {
+        return Err(format!("Open VSX download returned HTTP {}", response.status()));
+    }
+    if let Some(content_length) = response.content_length() {
+        if content_length > MAX_EXTENSION_DOWNLOAD_BYTES {
             return Err(format!("Extension exceeds the {} MiB download limit", MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024));
         }
-
-        // ローカルディレクトリに保存
-        let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        ext_dir.push("oxide-editor");
-        ext_dir.push("extensions");
-        std::fs::create_dir_all(&ext_dir).map_err(|e| e.to_string())?;
-
-        let file_path = ext_dir.join(format!("{}.vsix", id));
-        std::fs::write(&file_path, bytes).map_err(|e| e.to_string())?;
     }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("Failed to read VSIX bytes: {}", error))?;
+    let manifest = state.install_vsix(&id, &bytes)?;
 
-    let mut exts = state.extensions.lock().unwrap();
-    exts.push(ExtensionManifest {
-        id: id.clone(),
-        name: name.clone(),
-        version,
-        description,
-        main: None,
-        contributes_languages: vec![],
-        contributes_themes: vec![],
-    });
-
-    Ok(format!("Extension '{}' installed successfully!", id))
+    Ok(format!("Extension '{}@{}' installed successfully", manifest.id, manifest.version))
 }
 
 #[tauri::command]
@@ -284,21 +264,17 @@ pub async fn uninstall_extension(
     state: State<'_, ExtensionHostState>,
     id: String,
 ) -> Result<String, String> {
-    let mut exts = state.extensions.lock().unwrap();
-    let original_len = exts.len();
-    exts.retain(|e| e.id != id);
+    state.uninstall(&id)?;
+    Ok(format!("Extension '{}' uninstalled successfully.", id))
+}
 
-    if exts.len() < original_len {
-        let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        ext_dir.push("oxide-editor");
-        ext_dir.push("extensions");
-        let file_path = ext_dir.join(format!("{}.vsix", id));
-        let _ = std::fs::remove_file(file_path); // ignore error if it doesn't exist
-
-        Ok(format!("Extension '{}' uninstalled successfully.", id))
-    } else {
-        Err(format!("Extension '{}' not found.", id))
-    }
+#[tauri::command]
+pub async fn set_extension_enabled(
+    state: State<'_, ExtensionHostState>,
+    id: String,
+    enabled: bool,
+) -> Result<ExtensionManifest, String> {
+    state.set_enabled(&id, enabled)
 }
 
 #[tauri::command]
