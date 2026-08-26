@@ -5,6 +5,28 @@ import * as monaco from "monaco-editor";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import {
+  applyProfile,
+  COMMAND_LABELS,
+  commandForEvent,
+  createProfile,
+  deleteProfile,
+  exportProfile,
+  findKeybindingConflicts,
+  getKeybindings,
+  getProfiles,
+  getScopedSettings,
+  importProfile,
+  keybindingFromEvent,
+  migrateLegacySettings,
+  resetKeybindings,
+  resolveSettings,
+  saveKeybindings,
+  saveScopedSettings,
+  type EditorSettings,
+  type Keybinding,
+  type SettingScope,
+} from "./settings";
 
 interface FileEntry {
   name: string;
@@ -151,6 +173,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   initLanguageServerIntegration();
   initMonacoEditors();
+  migrateLegacySettings();
   applyStoredSettings();
   setupVSCodeMenus();
   setupActivityBar();
@@ -1644,6 +1667,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     }
     updateTabBar();
     updateStatusBar(path);
+    applyStoredSettings();
     loadWorkspaceFiles();
     return;
   }
@@ -1714,6 +1738,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
 
     updateTabBar();
     updateStatusBar(path);
+    applyStoredSettings();
     loadWorkspaceFiles();
     showStatusMessage(`開きました: ${fileName}`);
   } catch (err: any) {
@@ -2304,36 +2329,7 @@ async function updateSidebarView(view: string) {
 
     case "settings":
       titleEl.textContent = "設定 (SETTINGS)";
-      const savedTheme = localStorage.getItem("oxide_theme") || "vscode-dark-plus";
-      const savedFontSize = localStorage.getItem("oxide_fontSize") || "14";
-      const savedTabSize = localStorage.getItem("oxide_tabSize") || "4";
-      const savedMinimap = localStorage.getItem("oxide_minimap") !== "false";
-
-      contentEl.innerHTML = `
-        <div style="padding: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 12px;">
-          <div>
-            <label style="display: block; margin-bottom: 4px; color: #aaa;">カラーテーマ (Theme):</label>
-            <select id="theme-selector" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;">
-              <option value="vscode-dark-plus" ${savedTheme === "vscode-dark-plus" ? "selected" : ""}>VS Code Dark+</option>
-              <option value="vs" ${savedTheme === "vs" ? "selected" : ""}>VS Code Light</option>
-              <option value="hc-black" ${savedTheme === "hc-black" ? "selected" : ""}>High Contrast</option>
-            </select>
-          </div>
-          <div>
-            <label style="display: block; margin-bottom: 4px; color: #aaa;">フォントサイズ (Font Size):</label>
-            <input type="number" id="font-size-input" value="${savedFontSize}" min="10" max="28" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
-          </div>
-          <div>
-            <label style="display: block; margin-bottom: 4px; color: #aaa;">タブサイズ (Tab Size):</label>
-            <input type="number" id="tab-size-input" value="${savedTabSize}" min="2" max="8" style="width: 100%; padding: 4px; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px;" />
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="minimap-checkbox" ${savedMinimap ? "checked" : ""} />
-            <label for="minimap-checkbox" style="color: #aaa; cursor: pointer;">ミニマップを表示 (Minimap)</label>
-          </div>
-        </div>
-      `;
-      setupSettingsHandlers();
+      renderSettingsView(contentEl);
       break;
   }
 }
@@ -2584,84 +2580,289 @@ function setupSearchInput() {
   });
 }
 
-function setupSettingsHandlers() {
-  const themeSelector = document.getElementById("theme-selector") as HTMLSelectElement;
-  const fontSizeInput = document.getElementById("font-size-input") as HTMLInputElement;
-  const tabSizeInput = document.getElementById("tab-size-input") as HTMLInputElement;
-  const minimapCheckbox = document.getElementById("minimap-checkbox") as HTMLInputElement;
-
-  if (themeSelector) {
-    themeSelector.onchange = () => {
-      const theme = themeSelector.value;
-      monaco.editor.setTheme(theme);
-      localStorage.setItem("oxide_theme", theme);
-    };
-  }
-
-  if (fontSizeInput) {
-    fontSizeInput.onchange = () => {
-      const sz = parseInt(fontSizeInput.value, 10);
-      if (sz >= 10 && sz <= 28) {
-        editor1?.updateOptions({ fontSize: sz });
-        editor2?.updateOptions({ fontSize: sz });
-        localStorage.setItem("oxide_fontSize", sz.toString());
-      }
-    };
-  }
-
-  if (tabSizeInput) {
-    tabSizeInput.onchange = () => {
-      const sz = parseInt(tabSizeInput.value, 10);
-      if (sz >= 2 && sz <= 8) {
-        editor1?.updateOptions({ tabSize: sz });
-        editor2?.updateOptions({ tabSize: sz });
-        localStorage.setItem("oxide_tabSize", sz.toString());
-        const statusIndent = document.getElementById("status-indent");
-        if (statusIndent) statusIndent.textContent = `スペース: ${sz}`;
-      }
-    };
-  }
-
-  if (minimapCheckbox) {
-    minimapCheckbox.onchange = () => {
-      const enabled = minimapCheckbox.checked;
-      editor1?.updateOptions({ minimap: { enabled } });
-      editor2?.updateOptions({ minimap: { enabled } });
-      localStorage.setItem("oxide_minimap", enabled ? "true" : "false");
-    };
-  }
+function applyStoredSettings() {
+  const settings = resolveSettings(workspaceRoot, getActiveLanguage());
+  monaco.editor.setTheme(settings.theme);
+  editor1?.updateOptions({
+    fontSize: settings.fontSize,
+    tabSize: settings.tabSize,
+    minimap: { enabled: settings.minimap },
+  });
+  editor2?.updateOptions({
+    fontSize: settings.fontSize,
+    tabSize: settings.tabSize,
+    minimap: { enabled: settings.minimap },
+  });
+  const statusIndent = document.getElementById("status-indent");
+  if (statusIndent) statusIndent.textContent = `スペース: ${settings.tabSize}`;
 }
 
-function applyStoredSettings() {
-  const savedTheme = localStorage.getItem("oxide_theme");
-  if (savedTheme) monaco.editor.setTheme(savedTheme);
+function getActiveLanguage(): string {
+  const editor = activeEditorPane === 2 && isSplitActive ? editor2 : editor1;
+  return editor?.getModel()?.getLanguageId() || "plaintext";
+}
 
-  const savedFontSize = localStorage.getItem("oxide_fontSize");
-  if (savedFontSize) {
-    const sz = parseInt(savedFontSize, 10);
-    editor1?.updateOptions({ fontSize: sz });
-    editor2?.updateOptions({ fontSize: sz });
-  }
+function renderSettingsView(container: HTMLElement, selectedScope: SettingScope = "user") {
+  const language = getActiveLanguage();
+  const scopedSettings = getScopedSettings(selectedScope, workspaceRoot, language);
+  const resolvedSettings = resolveSettings(workspaceRoot, language);
+  const profiles = getProfiles();
 
-  const savedTabSize = localStorage.getItem("oxide_tabSize");
-  if (savedTabSize) {
-    const sz = parseInt(savedTabSize, 10);
-    editor1?.updateOptions({ tabSize: sz });
-    editor2?.updateOptions({ tabSize: sz });
-    const statusIndent = document.getElementById("status-indent");
-    if (statusIndent) statusIndent.textContent = `スペース: ${sz}`;
-  }
+  container.innerHTML = `
+    <div class="settings-view">
+      <section class="settings-section">
+        <h3>設定スコープ</h3>
+        <select id="settings-scope">
+          <option value="user" ${selectedScope === "user" ? "selected" : ""}>ユーザー</option>
+          <option value="workspace" ${selectedScope === "workspace" ? "selected" : ""}>ワークスペース</option>
+          <option value="language" ${selectedScope === "language" ? "selected" : ""}>言語別 (${escapeHtml(language)})</option>
+        </select>
+        <p class="settings-hint">デフォルト → ユーザー → ワークスペース → 言語別の順に上書き</p>
+        <label>カラーテーマ</label>
+        <select id="theme-selector">
+          <option value="vscode-dark-plus" ${resolvedSettings.theme === "vscode-dark-plus" ? "selected" : ""}>VS Code Dark+</option>
+          <option value="vs" ${resolvedSettings.theme === "vs" ? "selected" : ""}>VS Code Light</option>
+          <option value="hc-black" ${resolvedSettings.theme === "hc-black" ? "selected" : ""}>High Contrast</option>
+        </select>
+        <label>フォントサイズ</label>
+        <input type="number" id="font-size-input" value="${resolvedSettings.fontSize}" min="10" max="28" />
+        <label>タブサイズ</label>
+        <input type="number" id="tab-size-input" value="${resolvedSettings.tabSize}" min="2" max="8" />
+        <label class="settings-checkbox">
+          <input type="checkbox" id="minimap-checkbox" ${resolvedSettings.minimap ? "checked" : ""} />
+          ミニマップを表示
+        </label>
+        <label>スコープ設定JSON</label>
+        <textarea id="settings-json" rows="9" spellcheck="false">${escapeHtml(JSON.stringify(scopedSettings, null, 2))}</textarea>
+        <button id="apply-settings-json">JSONを適用</button>
+      </section>
 
-  const savedMinimap = localStorage.getItem("oxide_minimap");
-  if (savedMinimap !== null) {
-    const enabled = savedMinimap !== "false";
-    editor1?.updateOptions({ minimap: { enabled } });
-    editor2?.updateOptions({ minimap: { enabled } });
-  }
+      <section class="settings-section">
+        <h3>キーボードショートカット</h3>
+        <input id="keybinding-search" type="search" placeholder="コマンドまたはキーを検索" />
+        <div id="keybinding-conflicts"></div>
+        <div id="keybinding-list"></div>
+        <label>キーバインドJSON</label>
+        <textarea id="keybindings-json" rows="12" spellcheck="false">${escapeHtml(JSON.stringify(getKeybindings(), null, 2))}</textarea>
+        <div class="settings-actions">
+          <button id="apply-keybindings-json">JSONを適用</button>
+          <button id="reset-keybindings">既定値に戻す</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>プロファイル</h3>
+        <input id="profile-name" type="text" placeholder="プロファイル名" />
+        <button id="create-profile">現在の構成から作成</button>
+        <select id="profile-selector">
+          <option value="">プロファイルを選択</option>
+          ${profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)}</option>`).join("")}
+        </select>
+        <div class="settings-actions">
+          <button id="apply-profile">適用</button>
+          <button id="export-profile">エクスポート</button>
+          <button id="delete-profile">削除</button>
+        </div>
+        <label class="settings-file-label">
+          プロファイルをインポート
+          <input id="import-profile" type="file" accept="application/json,.json" />
+        </label>
+        <p class="settings-hint">テーマ、ユーザー設定、キーバインド、拡張機能一覧を一括管理</p>
+      </section>
+    </div>
+  `;
+
+  setupSettingsHandlers(container, selectedScope);
+}
+
+function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingScope) {
+  const language = getActiveLanguage();
+  const scopeSelector = container.querySelector<HTMLSelectElement>("#settings-scope");
+  const settingsJson = container.querySelector<HTMLTextAreaElement>("#settings-json");
+  const themeSelector = container.querySelector<HTMLSelectElement>("#theme-selector");
+  const fontSizeInput = container.querySelector<HTMLInputElement>("#font-size-input");
+  const tabSizeInput = container.querySelector<HTMLInputElement>("#tab-size-input");
+  const minimapCheckbox = container.querySelector<HTMLInputElement>("#minimap-checkbox");
+
+  scopeSelector?.addEventListener("change", () => {
+    renderSettingsView(container, scopeSelector.value as SettingScope);
+  });
+
+  const saveSetting = (key: keyof EditorSettings, value: EditorSettings[keyof EditorSettings]) => {
+    const settings = getScopedSettings(selectedScope, workspaceRoot, language);
+    saveScopedSettings(selectedScope, workspaceRoot, language, { ...settings, [key]: value });
+    applyStoredSettings();
+    renderSettingsView(container, selectedScope);
+  };
+
+  themeSelector?.addEventListener("change", () => saveSetting("theme", themeSelector.value as EditorSettings["theme"]));
+  fontSizeInput?.addEventListener("change", () => saveSetting("fontSize", Number(fontSizeInput.value)));
+  tabSizeInput?.addEventListener("change", () => saveSetting("tabSize", Number(tabSizeInput.value)));
+  minimapCheckbox?.addEventListener("change", () => saveSetting("minimap", minimapCheckbox.checked));
+
+  container.querySelector("#apply-settings-json")?.addEventListener("click", () => {
+    try {
+      saveScopedSettings(selectedScope, workspaceRoot, language, JSON.parse(settingsJson?.value || "{}") as unknown);
+      applyStoredSettings();
+      renderSettingsView(container, selectedScope);
+      showStatusMessage("設定JSONを適用しました");
+    } catch (error) {
+      alert(`設定JSONエラー: ${error}`);
+    }
+  });
+
+  const renderKeybindings = (query = "") => {
+    const keybindings = getKeybindings();
+    const normalizedQuery = query.trim().toLowerCase();
+    const list = container.querySelector("#keybinding-list");
+    const conflictsContainer = container.querySelector("#keybinding-conflicts");
+    if (!list || !conflictsContainer) return;
+
+    const conflicts = findKeybindingConflicts(keybindings);
+    conflictsContainer.innerHTML = conflicts.length
+      ? conflicts
+          .map(
+            (conflict) =>
+              `<div class="keybinding-conflict">${escapeHtml(conflict.key)}: ${conflict.commands
+                .map((command) => escapeHtml(COMMAND_LABELS[command] || command))
+                .join(" / ")}</div>`,
+          )
+          .join("")
+      : `<div class="keybinding-ok">競合はありません</div>`;
+
+    list.innerHTML = keybindings
+      .filter((binding) => {
+        const label = COMMAND_LABELS[binding.command] || binding.command;
+        return !normalizedQuery || label.toLowerCase().includes(normalizedQuery) || binding.key.toLowerCase().includes(normalizedQuery);
+      })
+      .map(
+        (binding) => `
+          <label class="keybinding-row">
+            <span>${escapeHtml(COMMAND_LABELS[binding.command] || binding.command)}</span>
+            <input data-command="${binding.command}" value="${escapeHtml(binding.key)}" readonly />
+          </label>
+        `,
+      )
+      .join("");
+
+    list.querySelectorAll<HTMLInputElement>("input[data-command]").forEach((input) => {
+      input.addEventListener("keydown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          input.blur();
+          return;
+        }
+        const key = keybindingFromEvent(event);
+        if (!key || ["Ctrl", "Shift", "Alt", "Meta"].includes(key)) return;
+        const updated = keybindings.map((binding) =>
+          binding.command === input.dataset.command ? { ...binding, key } : binding,
+        );
+        saveKeybindings(updated);
+        const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
+        if (json) json.value = JSON.stringify(updated, null, 2);
+        renderKeybindings((container.querySelector<HTMLInputElement>("#keybinding-search")?.value || ""));
+      });
+    });
+  };
+
+  const keybindingSearch = container.querySelector<HTMLInputElement>("#keybinding-search");
+  keybindingSearch?.addEventListener("input", () => renderKeybindings(keybindingSearch.value));
+  renderKeybindings();
+
+  container.querySelector("#apply-keybindings-json")?.addEventListener("click", () => {
+    const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
+    try {
+      const keybindings = saveKeybindings(JSON.parse(json?.value || "[]") as unknown);
+      if (json) json.value = JSON.stringify(keybindings, null, 2);
+      renderKeybindings(keybindingSearch?.value);
+      showStatusMessage("キーバインドJSONを適用しました");
+    } catch (error) {
+      alert(`キーバインドJSONエラー: ${error}`);
+    }
+  });
+
+  container.querySelector("#reset-keybindings")?.addEventListener("click", () => {
+    const keybindings = resetKeybindings();
+    const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
+    if (json) json.value = JSON.stringify(keybindings, null, 2);
+    renderKeybindings(keybindingSearch?.value);
+  });
+
+  const getSelectedProfile = () => {
+    const id = container.querySelector<HTMLSelectElement>("#profile-selector")?.value;
+    return getProfiles().find((profile) => profile.id === id);
+  };
+
+  container.querySelector("#create-profile")?.addEventListener("click", async () => {
+    try {
+      const name = container.querySelector<HTMLInputElement>("#profile-name")?.value || "";
+      let extensions: string[] = [];
+      try {
+        extensions = (await invoke<ExtensionManifest[]>("get_installed_extensions")).map((extension) => extension.id);
+      } catch {
+        extensions = [];
+      }
+      createProfile(name, extensions);
+      renderSettingsView(container, selectedScope);
+      showStatusMessage("プロファイルを作成しました");
+    } catch (error) {
+      alert(`プロファイル作成エラー: ${error}`);
+    }
+  });
+
+  container.querySelector("#apply-profile")?.addEventListener("click", () => {
+    const profile = getSelectedProfile();
+    if (!profile) return;
+    applyProfile(profile);
+    applyStoredSettings();
+    renderSettingsView(container, selectedScope);
+    showStatusMessage(`プロファイルを適用しました: ${profile.name}`);
+  });
+
+  container.querySelector("#delete-profile")?.addEventListener("click", () => {
+    const profile = getSelectedProfile();
+    if (!profile) return;
+    deleteProfile(profile.id);
+    renderSettingsView(container, selectedScope);
+  });
+
+  container.querySelector("#export-profile")?.addEventListener("click", () => {
+    const profile = getSelectedProfile();
+    if (!profile) return;
+    downloadTextFile(`${profile.name.replace(/[^\w.-]+/g, "_") || "oxide-profile"}.json`, exportProfile(profile));
+  });
+
+  container.querySelector<HTMLInputElement>("#import-profile")?.addEventListener("change", async (event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const profile = importProfile(await file.text());
+      renderSettingsView(container, selectedScope);
+      showStatusMessage(`プロファイルをインポートしました: ${profile.name}`);
+    } catch (error) {
+      alert(`プロファイル読込エラー: ${error}`);
+    }
+  });
+}
+
+function downloadTextFile(fileName: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // 15. SCM (Git) Integration (Push/Pull/Stage/Unstage)
@@ -3423,6 +3624,29 @@ function executeCommand(id: string) {
     case "new_file":
       document.getElementById("btn-new-file")?.click();
       break;
+    case "restore_closed_tab":
+      restoreLastClosedTab();
+      break;
+    case "run":
+      showStatusMessage("▶ 実行中 (Run)");
+      break;
+    case "rename_file":
+      if (activeFilePath) {
+        const tab = openTabs.get(activeFilePath);
+        if (tab) promptRenameFile(tab.path);
+      }
+      break;
+    case "go_to_line": {
+      const lineStr = prompt("移動先の行番号を入力してください:");
+      if (!lineStr) break;
+      const lineNumber = parseInt(lineStr, 10);
+      const editor = activeEditorPane === 2 && isSplitActive ? editor2 : editor1;
+      if (!isNaN(lineNumber) && editor) {
+        editor.revealLineInCenter(lineNumber);
+        editor.setPosition({ lineNumber, column: 1 });
+      }
+      break;
+    }
     case "open_file_dialog":
       openNativeFileDialog();
       break;
@@ -3459,6 +3683,12 @@ function executeCommand(id: string) {
       break;
     case "open_settings":
       document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+      break;
+    case "quick_open":
+      openQuickPick(false);
+      break;
+    case "command_palette":
+      openQuickPick(true);
       break;
     case "goto_def":
       performGoToDefinition();
@@ -3543,6 +3773,7 @@ function setupStatusBarInteractions() {
           const tab = openTabs.get(activeFilePath)!;
           monaco.editor.setModelLanguage(tab.model, lang);
           updateStatusBar(activeFilePath);
+          applyStoredSettings();
         }
       },
     }));
@@ -3595,107 +3826,15 @@ function setupStatusBarInteractions() {
 
 // 20. Global Shortcuts & Status Bar
 function setupShortcuts() {
-  window.addEventListener("keydown", async (e) => {
-    // 1. Browser Default Interceptions
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
+  window.addEventListener("keydown", (e) => {
+    const target = e.target as HTMLElement | null;
+    const isTextInput =
+      (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) &&
+      !target?.classList.contains("inputarea");
+    const command = isTextInput ? null : commandForEvent(e);
+    if (command) {
       e.preventDefault();
-      document.getElementById("btn-new-file")?.click();
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "o") {
-      e.preventDefault();
-      document.getElementById("btn-new-folder")?.click();
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "w") {
-      e.preventDefault();
-      if (activeFilePath) closeTab(activeFilePath);
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "t") {
-      e.preventDefault();
-      await restoreLastClosedTab();
-      return;
-    }
-    if (e.key === "F5") {
-      e.preventDefault();
-      showStatusMessage("▶ 実行中 (Run)");
-      return;
-    }
-    if (e.key === "F2") {
-      e.preventDefault();
-      if (activeFilePath) {
-        const tab = openTabs.get(activeFilePath);
-        if (tab) promptRenameFile(tab.path);
-      }
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      const lineStr = prompt("移動先の行番号を入力してください:");
-      if (lineStr) {
-        const lineNum = parseInt(lineStr, 10);
-        if (!isNaN(lineNum) && editor1) {
-          editor1.revealLineInCenter(lineNum);
-          editor1.setPosition({ lineNumber: lineNum, column: 1 });
-        }
-      }
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key === ",") {
-      e.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "e") {
-      e.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
-      e.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "x") {
-      e.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "~")) {
-      e.preventDefault();
-      showStatusMessage("新規ターミナルを開きました");
-      toggleTerminal(true);
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      saveActiveFile();
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      openQuickPick(false);
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      openQuickPick(true);
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "b") {
-      e.preventDefault();
-      toggleSidebar();
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "j") {
-      e.preventDefault();
-      toggleTerminal();
+      executeCommand(command);
       return;
     }
     if (e.key === "Escape") {
