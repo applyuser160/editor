@@ -18,9 +18,7 @@ pub fn run() {
         .manage(pty_state)
         .manage(ext_state)
         .manage(lsp_state)
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             if let Ok(cur_dir) = std::env::current_dir() {
                 let _ = FileWatcherManager::start_watching(app.handle().clone(), &cur_dir);
