@@ -287,8 +287,21 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+#workspace-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  margin-left: 8px;
+  color: var(--text-bright);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .sidebar-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
 }
 

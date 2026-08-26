@@ -1,12 +1,13 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 pub struct LspSession {
+    pub child: Arc<Mutex<Child>>,
     pub stdin: Arc<Mutex<ChildStdin>>,
     pub next_request_id: AtomicU64,
     pub pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
@@ -118,6 +119,7 @@ impl LspState {
 
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("Failed to open stdin for LSP")?));
         let stdout = child.stdout.take().ok_or("Failed to open stdout for LSP")?;
+        let child = Arc::new(Mutex::new(child));
 
         let pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -161,6 +163,7 @@ impl LspState {
         });
 
         let session = LspSession {
+            child,
             stdin: stdin.clone(),
             next_request_id: AtomicU64::new(1),
             pending_requests,
@@ -207,21 +210,18 @@ impl LspState {
         Ok(format!("LSP server for '{}' initialized successfully.", lang))
     }
 
-    pub fn stop_server(&self, lang: &str) -> Result<(), String> {
-        let session = self.sessions.lock().unwrap().remove(lang)
-            .ok_or_else(|| format!("LSP session for '{}' is not running", lang))?;
-        send_message_raw(&session.stdin, &serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": session.next_request_id.fetch_add(1, Ordering::SeqCst),
-            "method": "shutdown",
-            "params": null
-        }));
-        send_message_raw(&session.stdin, &serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "exit",
-            "params": null
-        }));
-        Ok(())
+    pub fn stop_all(&self) -> usize {
+        let sessions = {
+            let mut sessions = self.sessions.lock().unwrap();
+            std::mem::take(&mut *sessions)
+        };
+        let count = sessions.len();
+
+        for (_, session) in sessions {
+            let _ = session.child.lock().unwrap().kill();
+        }
+
+        count
     }
 
     pub fn send_notification(&self, lang: &str, method: &str, params: Value) -> Result<(), String> {

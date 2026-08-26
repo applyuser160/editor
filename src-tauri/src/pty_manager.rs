@@ -1,6 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
@@ -28,6 +29,7 @@ impl PtyState {
         app_handle: AppHandle,
         cols: u16,
         rows: u16,
+        workspace_root: PathBuf,
     ) -> Result<u32, String> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -46,9 +48,7 @@ impl PtyState {
         };
 
         let mut cmd = CommandBuilder::new(shell);
-        if let Ok(cur_dir) = std::env::current_dir() {
-            cmd.cwd(cur_dir);
-        }
+        cmd.cwd(workspace_root);
 
         let _child = pair
             .slave
