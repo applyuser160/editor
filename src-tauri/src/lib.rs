@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod debug_config;
 pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
@@ -31,6 +32,8 @@ pub fn run() {
             commands::lsp_start_server,
             commands::lsp_send_notification,
             commands::lsp_send_request,
+            commands::list_debug_configurations,
+            commands::validate_debug_configuration,
             commands::search_openvsx_extensions,
             commands::install_openvsx_extension,
             commands::uninstall_extension,
