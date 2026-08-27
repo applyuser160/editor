@@ -213,6 +213,7 @@ let quickPickSelectedIndex = 0;
 
 const openTabs: Map<string, OpenTab> = new Map();
 let activeFilePath: string | null = null;
+let isGitGraphOpen = false;
 let currentActiveView = "explorer";
 let isSidebarVisible = true;
 let isTerminalVisible = true;
@@ -2292,6 +2293,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     );
     return;
   }
+  if (isGitGraphOpen) closeGitGraph();
 
   const path = normalizePath(rawPath);
   const readPath = pathForWorkspaceRead(rawPath, workspaceRoot);
@@ -2761,7 +2763,7 @@ function updateTabBar() {
 
   openTabs.forEach((tab, path) => {
     const tabEl = document.createElement("div");
-    const isActive = path === activeFilePath;
+    const isActive = !isGitGraphOpen && path === activeFilePath;
     tabEl.className = `tab ${isActive ? "active" : ""}`;
     tabEl.draggable = true;
 
@@ -2837,7 +2839,27 @@ function updateTabBar() {
     tabBar.appendChild(tabEl);
   });
 
-  updateBreadcrumbs(activeFilePath);
+  if (isGitGraphOpen) {
+    const graphTab = document.createElement("div");
+    graphTab.className = "tab active git-graph-tab";
+    graphTab.title = "Git Graph";
+    graphTab.innerHTML =
+      '<span class="tab-icon">⑂</span><span class="tab-title">Git Graph</span><span class="tab-close" title="閉じる">×</span>';
+    graphTab.addEventListener("click", () => void openGitGraph());
+    graphTab.querySelector(".tab-close")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeGitGraph();
+    });
+    tabBar.appendChild(graphTab);
+    const breadcrumbEl = document.getElementById("breadcrumb-bar");
+    if (breadcrumbEl) {
+      breadcrumbEl.innerHTML =
+        '<span class="breadcrumb-item active-file">⑂ Git Graph</span>';
+    }
+    document.title = "Git Graph - Oxide Editor";
+  } else {
+    updateBreadcrumbs(activeFilePath);
+  }
   saveSessionState();
 }
 
@@ -3865,7 +3887,11 @@ function formatGitGraphDate(date: string): string {
 }
 
 function closeGitGraph(): void {
-  document.getElementById("git-graph-overlay")?.remove();
+  const graph = document.getElementById("git-graph-overlay");
+  if (!graph && !isGitGraphOpen) return;
+  graph?.remove();
+  isGitGraphOpen = false;
+  updateTabBar();
 }
 
 function renderGitGraphRows(
@@ -3941,12 +3967,21 @@ function renderGitGraphRows(
 }
 
 async function openGitGraph(): Promise<void> {
-  closeGitGraph();
+  document.getElementById("git-graph-overlay")?.remove();
+  isGitGraphOpen = true;
+  updateTabBar();
+
+  const editorGrid = document.getElementById("editor-grid");
+  if (!editorGrid) {
+    isGitGraphOpen = false;
+    updateTabBar();
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.id = "git-graph-overlay";
   overlay.className = "git-graph-overlay";
   overlay.innerHTML = `
-    <section class="git-graph-dialog" role="dialog" aria-modal="true" aria-labelledby="git-graph-title">
+    <section class="git-graph-dialog" role="region" aria-labelledby="git-graph-title">
       <header class="git-graph-header">
         <div>
           <h2 id="git-graph-title">Git Graph</h2>
@@ -3963,7 +3998,7 @@ async function openGitGraph(): Promise<void> {
       <div id="git-graph-list" class="git-graph-list" aria-live="polite">Git 履歴を読み込み中...</div>
     </section>
   `;
-  document.body.appendChild(overlay);
+  editorGrid.appendChild(overlay);
 
   const loadGraph = async () => {
     const list = document.getElementById("git-graph-list");
@@ -3979,9 +4014,6 @@ async function openGitGraph(): Promise<void> {
     }
   };
 
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) closeGitGraph();
-  });
   document
     .getElementById("btn-close-git-graph")
     ?.addEventListener("click", closeGitGraph);

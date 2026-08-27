@@ -570,6 +570,7 @@ body {
 
 /* Grid Layout */
 #editor-grid {
+  position: relative;
   flex: 1;
   display: flex;
   overflow: hidden;
@@ -1645,26 +1646,23 @@ body {
 }
 /* Git Graph */
 .git-graph-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 32000;
+  z-index: 20;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: rgba(0, 0, 0, 0.62);
+  min-width: 0;
+  min-height: 0;
+  background: #1e1e1e;
 }
 
 .git-graph-dialog {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  width: min(1180px, 100%);
-  height: min(760px, 100%);
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid #3f3f46;
-  border-radius: 8px;
   background: #1e1e1e;
-  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.65);
 }
 
 .git-graph-header {
@@ -1836,10 +1834,6 @@ body {
 }
 
 @media (max-width: 760px) {
-  .git-graph-overlay {
-    padding: 12px;
-  }
-
   .git-graph-columns,
   .git-graph-row {
     grid-template-columns: 74px minmax(220px, 1fr) 72px;
