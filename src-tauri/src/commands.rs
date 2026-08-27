@@ -1,3 +1,4 @@
+use crate::debug_config::{load_configurations, validate_configuration, DebugConfiguration};
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
@@ -124,6 +125,20 @@ pub async fn lsp_send_request(
     params: Value,
 ) -> Result<Value, String> {
     state.send_request(&lang, &method, params).await
+}
+
+#[tauri::command]
+pub async fn list_debug_configurations() -> Result<Vec<DebugConfiguration>, String> {
+    let workspace_root = std::env::current_dir().map_err(|error| error.to_string())?;
+    load_configurations(&workspace_root)
+}
+
+#[tauri::command]
+pub async fn validate_debug_configuration(
+    configuration: DebugConfiguration,
+) -> Result<(), String> {
+    let workspace_root = std::env::current_dir().map_err(|error| error.to_string())?;
+    validate_configuration(&configuration, &workspace_root)
 }
 
 #[tauri::command]
