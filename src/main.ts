@@ -45,6 +45,13 @@ interface FilePreview {
   data_url: string;
 }
 
+interface TerminalProfile {
+  id: string;
+  label: string;
+  executable: string;
+  args: string[];
+}
+
 interface WorkspaceInfo {
   root: string;
   name: string;
@@ -1921,7 +1928,7 @@ async function setupIntegratedTerminal() {
   const btnAdd = document.getElementById("btn-add-terminal");
   const btnKill = document.getElementById("btn-kill-terminal");
 
-  btnAdd?.addEventListener("click", () => createNewTerminalSession());
+  btnAdd?.addEventListener("click", () => openTerminalProfilePicker());
   btnKill?.addEventListener("click", () => {
     if (activeTerminalSessionId !== null) {
       killTerminalSession(activeTerminalSessionId);
@@ -2016,7 +2023,41 @@ function renderProblemsPanel() {
   });
 }
 
-async function createNewTerminalSession() {
+async function openTerminalProfilePicker() {
+  try {
+    const profiles = await invoke<TerminalProfile[]>("list_terminal_profiles");
+    if (profiles.length === 0) {
+      showToast("利用可能なターミナルプロファイルが見つかりません", "error");
+      return;
+    }
+    quickPickItems = profiles.map((profile) => ({
+      id: `terminal:${profile.id}`,
+      title: `$(terminal) ${profile.label}`,
+      subtitle: [profile.executable, ...profile.args].join(" "),
+      action: () => createNewTerminalSession(profile),
+    }));
+    quickPickSelectedIndex = 0;
+    const modal = document.getElementById("quickpick-modal");
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
+    modal?.classList.remove("hidden");
+    if (input) {
+      input.value = "";
+      input.placeholder = "起動するターミナルプロファイルを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to load terminal profiles:", error);
+    showToast(
+      `ターミナルプロファイルを読み込めませんでした: ${error}`,
+      "error",
+    );
+  }
+}
+
+async function createNewTerminalSession(profile?: TerminalProfile) {
   const container = document.getElementById("terminal-container");
   const tabsContainer = document.getElementById("terminal-session-tabs");
   if (!container) return;
@@ -2056,7 +2097,11 @@ async function createNewTerminalSession() {
   try {
     const cols = term.cols || 80;
     const rows = term.rows || 24;
-    const currentPtyId = await invoke<number>("spawn_pty", { cols, rows });
+    const currentPtyId = await invoke<number>("spawn_pty", {
+      cols,
+      rows,
+      profileId: profile?.id,
+    });
 
     await listen<string>(`pty-data-${currentPtyId}`, (event) => {
       term.write(event.payload);
@@ -2077,7 +2122,7 @@ async function createNewTerminalSession() {
     const session: TerminalSession = {
       id: sessionId,
       ptyId: currentPtyId,
-      title: `${sessionId}: powershell`,
+      title: `${sessionId}: ${profile?.label || "Default shell"}`,
       terminal: term,
       fitAddon: fit,
       containerEl: sessionDiv,
@@ -2094,7 +2139,7 @@ async function createNewTerminalSession() {
       if (await requestWorkspaceTrustForExecution("ターミナルを起動")) {
         term.dispose();
         sessionDiv.remove();
-        return createNewTerminalSession();
+        return createNewTerminalSession(profile);
       }
     }
     console.error("Failed to spawn PTY:", err);
@@ -2123,6 +2168,9 @@ function killTerminalSession(sessionId: number) {
   if (idx === -1) return;
 
   const session = terminalSessions[idx];
+  invoke("close_pty", { id: session.ptyId }).catch((error) =>
+    console.warn(`Failed to close PTY ${session.ptyId}:`, error),
+  );
   session.terminal.dispose();
   session.containerEl.remove();
   terminalSessions.splice(idx, 1);
@@ -4644,8 +4692,8 @@ function executeCommand(id: string) {
       toggleTerminal();
       break;
     case "new_terminal":
-      createNewTerminalSession();
       toggleTerminal(true);
+      openTerminalProfilePicker();
       break;
     case "run_workspace_task":
       openWorkspaceTaskPicker();

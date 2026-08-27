@@ -1,6 +1,6 @@
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
-use crate::pty_manager::PtyState;
+use crate::pty_manager::{PtyState, TerminalProfile};
 use crate::settings_store::{self, SettingsSnapshot};
 use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
 use crate::test_runner::{discover_test_suites, run_test_suite, TestSuite};
@@ -365,15 +365,23 @@ pub async fn start_extension_sidecar(
 }
 
 #[tauri::command]
+pub async fn list_terminal_profiles(
+    state: State<'_, PtyState>,
+) -> Result<Vec<TerminalProfile>, String> {
+    Ok(state.profiles())
+}
+
+#[tauri::command]
 pub async fn spawn_pty(
     app: AppHandle,
     state: State<'_, PtyState>,
     workspace: State<'_, WorkspaceState>,
     cols: u16,
     rows: u16,
+    profile_id: Option<String>,
 ) -> Result<u32, String> {
     workspace.require_trusted()?;
-    state.spawn(app, cols, rows, workspace.root())
+    state.spawn(app, cols, rows, workspace.root(), profile_id.as_deref())
 }
 
 #[tauri::command]
@@ -389,6 +397,11 @@ pub async fn resize_pty(
     rows: u16,
 ) -> Result<(), String> {
     state.resize(id, cols, rows)
+}
+
+#[tauri::command]
+pub async fn close_pty(state: State<'_, PtyState>, id: u32) -> Result<(), String> {
+    state.close(id)
 }
 
 #[tauri::command]
