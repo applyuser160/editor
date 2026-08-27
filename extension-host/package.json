@@ -1,0 +1,13 @@
+{
+  "name": "oxide-extension-host",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check": "node --check host.mjs",
+    "test": "node test/integration.mjs"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

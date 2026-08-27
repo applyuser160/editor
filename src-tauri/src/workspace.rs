@@ -129,6 +129,12 @@ fn is_path_within_workspace(root: &Path, candidate: &Path) -> bool {
     }
 }
 
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkspaceState {
     pub fn new() -> Self {
         let initial_root = std::env::current_dir()

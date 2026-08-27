@@ -375,11 +375,58 @@ pub async fn get_installed_extensions(
 
 #[tauri::command]
 pub async fn start_extension_sidecar(
+    app: AppHandle,
     state: State<'_, ExtensionHostState>,
     workspace: State<'_, WorkspaceState>,
 ) -> Result<String, String> {
+    state.start_sidecar(app, workspace.inner().clone())
+}
+
+#[tauri::command]
+pub async fn get_extension_commands(
+    state: State<'_, ExtensionHostState>,
+) -> Result<Vec<crate::extension_host::ExtensionCommand>, String> {
+    Ok(state.list_contributed_commands())
+}
+
+#[tauri::command]
+pub async fn execute_extension_command(
+    state: State<'_, ExtensionHostState>,
+    workspace: State<'_, WorkspaceState>,
+    command: String,
+    args: Option<Value>,
+) -> Result<(), String> {
     workspace.require_trusted()?;
-    state.start_sidecar()
+    state.execute_command(&command, args.unwrap_or(Value::Null))
+}
+
+#[tauri::command]
+pub async fn notify_extension_activation(
+    state: State<'_, ExtensionHostState>,
+    workspace: State<'_, WorkspaceState>,
+    event: String,
+) -> Result<(), String> {
+    workspace.require_trusted()?;
+    state.notify_activation_event(&event)
+}
+
+#[tauri::command]
+pub async fn request_extension_language_provider(
+    state: State<'_, ExtensionHostState>,
+    workspace: State<'_, WorkspaceState>,
+    provider_id: String,
+    kind: String,
+    request_id: String,
+    document: Value,
+    position: Value,
+) -> Result<(), String> {
+    workspace.require_trusted()?;
+    state.request_language_provider(&provider_id, &kind, &request_id, document, position)
+}
+
+#[tauri::command]
+pub async fn stop_extension_sidecar(state: State<'_, ExtensionHostState>) -> Result<(), String> {
+    state.stop_sidecar()
 }
 
 #[tauri::command]
@@ -750,7 +797,6 @@ fn search_recursive_regex(
     let read_dir = std::fs::read_dir(current).map_err(|e| e.to_string())?;
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
-        let file_name = entry.file_name().to_string_lossy().to_string();
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
         if file_type.is_symlink()
@@ -845,7 +891,6 @@ fn replace_recursive_regex(
     let read_dir = std::fs::read_dir(current).map_err(|e| e.to_string())?;
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
-        let file_name = entry.file_name().to_string_lossy().to_string();
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
         if file_type.is_symlink()

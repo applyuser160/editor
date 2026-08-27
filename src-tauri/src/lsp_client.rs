@@ -6,12 +6,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
+type LspResponse = Result<Value, String>;
+type LspResponseSender = tokio::sync::oneshot::Sender<LspResponse>;
+type PendingRequests = Arc<Mutex<HashMap<u64, LspResponseSender>>>;
+
 pub struct LspSession {
     pub child: Arc<Mutex<Child>>,
     pub stdin: Arc<Mutex<ChildStdin>>,
     pub next_request_id: AtomicU64,
-    pub pending_requests:
-        Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
+    pub pending_requests: PendingRequests,
 }
 
 #[derive(Default, Clone)]
@@ -140,9 +143,7 @@ impl LspState {
         let stdout = child.stdout.take().ok_or("Failed to open stdout for LSP")?;
         let child = Arc::new(Mutex::new(child));
 
-        let pending_requests: Arc<
-            Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>,
-        > = Arc::new(Mutex::new(HashMap::new()));
+        let pending_requests: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
 
         let pending_clone = pending_requests.clone();
         let app_clone = app_handle.clone();
@@ -343,7 +344,7 @@ fn send_message_raw(stdin: &Arc<Mutex<ChildStdin>>, payload: &Value) {
 fn handle_incoming_lsp_message(
     lang: &str,
     app: &AppHandle,
-    pending: &Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
+    pending: &PendingRequests,
     stdin: &Arc<Mutex<ChildStdin>>,
     msg: Value,
 ) {

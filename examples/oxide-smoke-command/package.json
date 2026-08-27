@@ -1,0 +1,24 @@
+{
+  "name": "oxide-smoke-command",
+  "displayName": "Oxide Smoke Command",
+  "publisher": "oxide",
+  "version": "0.1.0",
+  "description": "Integration fixture for the Oxide Extension API v0.1.",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:oxide.smoke-command",
+    "onLanguage:typescript"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "oxide.smoke-command",
+        "title": "Run Oxide Smoke Command",
+        "category": "Oxide Test"
+      }
+    ]
+  }
+}

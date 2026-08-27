@@ -118,9 +118,14 @@ interface ExtensionManifest {
   version: string;
   description: string;
   main?: string | null;
+  browser?: string | null;
   activation_events?: string[];
+  extension_kind?: string[];
+  engines_vscode?: string | null;
   contributes_languages: string[];
   contributes_themes: string[];
+  contributes_commands?: ExtensionCommand[];
+  permissions?: { workspace_read: boolean };
   enabled: boolean;
 }
 
@@ -134,6 +139,40 @@ interface OpenVsxExtension {
   icon_url: string | null;
   download_url: string | null;
   url: string | null;
+}
+
+interface ExtensionCommand {
+  command: string;
+  title: string;
+  category?: string | null;
+  enablement?: string | null;
+}
+
+interface ExtensionHostEvent {
+  type: string;
+  extensionId?: string;
+  command?: string;
+  message?: string;
+  error?: string;
+  apiVersion?: string;
+  providerId?: string;
+  kind?: "completion" | "hover";
+  selector?: string | { language?: string };
+  requestId?: string;
+  result?: unknown;
+}
+
+interface ExtensionLanguageProvider {
+  extensionId: string;
+  providerId: string;
+  kind: "completion" | "hover";
+  selector: string | { language?: string };
+}
+
+interface ExtensionWindowMessage {
+  extensionId: string;
+  severity: string;
+  message: string;
 }
 
 interface OpenTab {
@@ -222,8 +261,24 @@ let isSidebarVisible = true;
 let isTerminalVisible = true;
 
 const activeLspServers = new Set<string>();
+let extensionCommands: ExtensionCommand[] = [];
+const extensionLanguageProviderDisposables = new Map<
+  string,
+  monaco.IDisposable
+>();
+const extensionLanguageProviderRequests = new Map<
+  string,
+  { resolve: (result: unknown) => void; timer: number }
+>();
+let nextExtensionLanguageRequestId = 1;
 
 // Path & URI Utilities
+function extensionRuntimeSummary(extension: ExtensionManifest): string {
+  if (extension.main) return "Node.js 拡張（API v0.1・試験的）";
+  if (extension.browser) return "Web 拡張（未対応）";
+  return "宣言型の寄与ポイントのみ";
+}
+
 function normalizePath(rawPath: string): string {
   let path = normalizeFilePath(rawPath);
   // If a relative path is supplied, keep Monaco tab keys absolute while the
@@ -2278,17 +2333,253 @@ async function setupFileWatcherListener() {
 }
 
 // 8. Extension Host Initialization
+async function refreshExtensionCommands() {
+  try {
+    extensionCommands = await invoke<ExtensionCommand[]>(
+      "get_extension_commands",
+    );
+  } catch (error) {
+    console.warn("Failed to load extension commands:", error);
+    extensionCommands = [];
+  }
+}
+
+function resetExtensionLanguageProviders() {
+  extensionLanguageProviderDisposables.forEach((disposable) =>
+    disposable.dispose(),
+  );
+  extensionLanguageProviderDisposables.clear();
+  extensionLanguageProviderRequests.forEach((pending) => {
+    window.clearTimeout(pending.timer);
+    pending.resolve(null);
+  });
+  extensionLanguageProviderRequests.clear();
+}
+
+function selectorLanguage(
+  selector: ExtensionLanguageProvider["selector"],
+): string | null {
+  if (typeof selector === "string") return selector;
+  return typeof selector?.language === "string" ? selector.language : null;
+}
+
+function extensionDocumentPayload(model: monaco.editor.ITextModel) {
+  return {
+    uri: model.uri.toString(),
+    languageId: model.getLanguageId(),
+    version: model.getVersionId(),
+    text: model.getValue(),
+  };
+}
+
+function requestExtensionLanguageProvider(
+  provider: ExtensionLanguageProvider,
+  model: monaco.editor.ITextModel,
+  position: monaco.Position,
+): Promise<unknown> {
+  const requestId = `ui-${nextExtensionLanguageRequestId++}`;
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      extensionLanguageProviderRequests.delete(requestId);
+      resolve(null);
+    }, 2_000);
+    extensionLanguageProviderRequests.set(requestId, { resolve, timer });
+    void invoke("request_extension_language_provider", {
+      providerId: provider.providerId,
+      kind: provider.kind,
+      requestId,
+      document: extensionDocumentPayload(model),
+      position: {
+        line: position.lineNumber - 1,
+        character: position.column - 1,
+      },
+    }).catch((error) => {
+      const pending = extensionLanguageProviderRequests.get(requestId);
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        extensionLanguageProviderRequests.delete(requestId);
+        pending.resolve(null);
+      }
+      console.warn("Extension language provider request failed:", error);
+    });
+  });
+}
+
+function normalizeExtensionCompletionItems(
+  response: unknown,
+  model: monaco.editor.ITextModel,
+  position: monaco.Position,
+): monaco.languages.CompletionItem[] {
+  const typedResponse = response as { items?: unknown[] } | null;
+  const items = Array.isArray(response)
+    ? response
+    : Array.isArray(typedResponse?.items)
+      ? typedResponse.items
+      : [];
+  const word = model.getWordUntilPosition(position);
+  return items
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object"),
+    )
+    .map((item) => ({
+      label: String(item.label || item.insertText || ""),
+      kind: mapLspKindToMonaco(Number(item.kind || 1)),
+      detail: typeof item.detail === "string" ? item.detail : undefined,
+      documentation:
+        typeof item.documentation === "string"
+          ? item.documentation
+          : typeof (item.documentation as { value?: unknown } | null)?.value ===
+              "string"
+            ? String((item.documentation as { value: string }).value)
+            : undefined,
+      insertText: String(item.insertText || item.label || ""),
+      range: {
+        startLineNumber: position.lineNumber,
+        startColumn: position.column - word.word.length,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      },
+    }))
+    .filter((item) => item.label.length > 0);
+}
+
+function normalizeExtensionHover(
+  response: unknown,
+): monaco.languages.Hover | null {
+  if (!response || typeof response !== "object") return null;
+  const contents = (response as { contents?: unknown }).contents;
+  const values = Array.isArray(contents) ? contents : [contents];
+  const normalized = values.filter(Boolean).map((value) => {
+    if (typeof value === "string") return { value };
+    if (typeof (value as { value?: unknown }).value === "string") {
+      return { value: String((value as { value: string }).value) };
+    }
+    return { value: String(value) };
+  });
+  return normalized.length > 0 ? { contents: normalized } : null;
+}
+
+function registerExtensionLanguageProvider(
+  provider: ExtensionLanguageProvider,
+) {
+  if (extensionLanguageProviderDisposables.has(provider.providerId)) return;
+  const language = selectorLanguage(provider.selector);
+  if (!language) {
+    showStatusMessage(
+      `[${provider.extensionId}] この言語セレクターは未対応です`,
+    );
+    return;
+  }
+
+  const disposable =
+    provider.kind === "completion"
+      ? monaco.languages.registerCompletionItemProvider(language, {
+          provideCompletionItems: async (model, position) => ({
+            suggestions: normalizeExtensionCompletionItems(
+              await requestExtensionLanguageProvider(provider, model, position),
+              model,
+              position,
+            ),
+          }),
+        })
+      : monaco.languages.registerHoverProvider(language, {
+          provideHover: async (model, position) =>
+            normalizeExtensionHover(
+              await requestExtensionLanguageProvider(provider, model, position),
+            ),
+        });
+  extensionLanguageProviderDisposables.set(provider.providerId, disposable);
+}
+
+function showExtensionHostEvent(event: ExtensionHostEvent) {
+  const statusEl = document.getElementById("window-status");
+  const label = event.extensionId ? `[${event.extensionId}] ` : "";
+  const detail = event.command ? ` ${event.command}` : "";
+
+  switch (event.type) {
+    case "host.ready":
+      if (statusEl) statusEl.textContent = "Extension Host (Node.js) Ready";
+      showStatusMessage(
+        "拡張ホストを起動しました（試験的な VS Code API v0.1）",
+      );
+      break;
+    case "host.stopped":
+      if (statusEl) statusEl.textContent = "Extension Host Stopped";
+      resetExtensionLanguageProviders();
+      break;
+    case "host.reloaded":
+      resetExtensionLanguageProviders();
+      void refreshExtensionCommands();
+      showStatusMessage("拡張ホストを再読み込みしました");
+      break;
+    case "language.provider.registered":
+      if (event.providerId && event.kind && event.selector) {
+        registerExtensionLanguageProvider({
+          providerId: event.providerId,
+          extensionId: event.extensionId || "unknown",
+          kind: event.kind,
+          selector: event.selector,
+        });
+      }
+      break;
+    case "language.provider.result": {
+      const pending = event.requestId
+        ? extensionLanguageProviderRequests.get(event.requestId)
+        : undefined;
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        extensionLanguageProviderRequests.delete(event.requestId!);
+        pending.resolve(event.error ? null : event.result);
+      }
+      break;
+    }
+    case "extension.activated":
+      showStatusMessage(`${label}拡張機能を有効化しました${detail}`);
+      break;
+    case "command.completed":
+      showStatusMessage(`${label}拡張コマンドを実行しました${detail}`);
+      break;
+    case "command.unavailable":
+    case "command.failed":
+    case "extension.activation-failed":
+    case "host.stderr":
+    case "host.protocol-error":
+    case "host.unhandled-error":
+      console.warn("Extension host:", event);
+      showStatusMessage(
+        `${label}${event.message || event.error || "拡張ホストでエラーが発生しました"}`,
+      );
+      break;
+    default:
+      console.debug("Extension host event:", event);
+  }
+}
+
 async function initExtensionHost() {
+  await listen<ExtensionHostEvent>("extension-host-event", (event) => {
+    showExtensionHostEvent(event.payload);
+  });
+  await listen<ExtensionWindowMessage>("extension-window-message", (event) => {
+    const prefix = event.payload.severity.includes("Error")
+      ? "エラー"
+      : event.payload.severity.includes("Warning")
+        ? "警告"
+        : "情報";
+    showStatusMessage(
+      `[${event.payload.extensionId}] ${prefix}: ${event.payload.message}`,
+    );
+  });
+
   try {
     const statusMsg = await invoke<string>("start_extension_sidecar");
+    await refreshExtensionCommands();
     const statusEl = document.getElementById("window-status");
-    if (statusEl) {
-      statusEl.textContent = statusMsg.includes("Node.js")
-        ? "Extension Host (Node.js) Ready"
-        : "Native & WASM Runtime";
-    }
-  } catch (e) {
-    console.error("Extension host init error:", e);
+    if (statusEl) statusEl.textContent = "Extension Host (Node.js) Starting";
+    console.info(statusMsg);
+  } catch (error) {
+    console.warn("Extension host is unavailable:", error);
+    const statusEl = document.getElementById("window-status");
+    if (statusEl) statusEl.textContent = "Extension Host Unavailable";
   }
 }
 
@@ -2392,6 +2683,9 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
 
     openTabs.set(path, tabData);
     ensureLspServerStarted(language);
+    void invoke("notify_extension_activation", {
+      event: `onLanguage:${language}`,
+    }).catch(() => {});
     invoke("lsp_send_notification", {
       lang: language,
       method: "textDocument/didOpen",
@@ -3267,22 +3561,34 @@ async function renderExtensionsView(container: HTMLElement) {
       installedList.innerHTML = "";
       exts.forEach((ext) => {
         const card = document.createElement("div");
+        const runtime = extensionRuntimeSummary(ext);
+        const commandCount = ext.contributes_commands?.length || 0;
+        const safeId = escapeHtml(ext.id);
         card.className = "openvsx-ext-card";
         card.innerHTML = `
           <div class="openvsx-ext-header">
-            <span class="openvsx-ext-title">${ext.name}</span>
-            <span class="openvsx-ext-id">v${ext.version}</span>
+            <span class="openvsx-ext-title">${escapeHtml(ext.name)}</span>
+            <span class="openvsx-ext-id">v${escapeHtml(ext.version)}</span>
           </div>
-          <div class="openvsx-ext-desc">${ext.description}</div>
+          <div class="openvsx-ext-desc">${escapeHtml(ext.description || "説明はありません")}</div>
+          <div style="font-size: 10px; color: #aaa; margin: 4px 0;">${escapeHtml(runtime)} · コマンド ${commandCount} 件 · ${ext.permissions?.workspace_read ? "信頼済みワークスペースの読取り可" : "ワークスペース読取り不可"}</div>
           <div class="openvsx-ext-footer">
             <span style="font-size: 10px; color: ${ext.enabled ? "#00ff80" : "#888"};">● ${ext.enabled ? "有効 (Active)" : "無効 (Disabled)"}</span>
-            <button class="btn-toggle-ext" data-id="${ext.id}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
+            <button class="btn-toggle-ext" data-id="${safeId}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
           </div>
         `;
         const toggleButton =
           card.querySelector<HTMLButtonElement>(".btn-toggle-ext");
         toggleButton?.addEventListener("click", async (event) => {
           event.stopPropagation();
+          if (
+            !ext.enabled &&
+            !confirm(
+              `「${ext.name}」を有効にしますか？Node.js拡張は、信頼済みワークスペース内のファイルを読み取れます。ネットワーク、子プロセス、書込みはOxideの拡張API v0.1では許可されません。`,
+            )
+          ) {
+            return;
+          }
           toggleButton.disabled = true;
           try {
             await invoke("set_extension_enabled", {
@@ -5025,6 +5331,11 @@ async function fetchAndRenderQuickPick(query: string) {
       shortcut: "Ctrl+W",
       id: "close_tab",
     },
+    ...extensionCommands.map((extensionCommand) => ({
+      title: `${extensionCommand.category ? `${extensionCommand.category}: ` : ""}${extensionCommand.title}`,
+      shortcut: "",
+      id: extensionCommand.command,
+    })),
   ];
 
   if (query.startsWith(">")) {
@@ -5321,6 +5632,20 @@ function executeCommand(id: string) {
     case "close_tab":
       if (activeFilePath) closeTab(activeFilePath);
       break;
+    default:
+      if (
+        extensionCommands.some(
+          (extensionCommand) => extensionCommand.command === id,
+        )
+      ) {
+        void invoke("execute_extension_command", {
+          command: id,
+          args: [],
+        }).catch((error) =>
+          showStatusMessage(`拡張コマンドを実行できません: ${error}`),
+        );
+      }
+      break;
   }
 }
 
@@ -5599,10 +5924,19 @@ async function toggleWorkspaceTrust() {
       root: workspaceRoot,
       name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
     });
+    if (nextTrusted) {
+      const hostStatus = await invoke<string>("start_extension_sidecar");
+      await refreshExtensionCommands();
+      console.info(hostStatus);
+    } else {
+      await invoke("stop_extension_sidecar");
+      extensionCommands = [];
+      resetExtensionLanguageProviders();
+    }
     showStatusMessage(
       nextTrusted
-        ? "ワークスペースを信頼しました"
-        : "ワークスペースの信頼を取り消しました",
+        ? "ワークスペースを信頼し、拡張ホストを開始しました"
+        : "ワークスペースの信頼を取り消し、拡張ホストを停止しました",
     );
   } catch (error) {
     console.error("Failed to update workspace trust:", error);
