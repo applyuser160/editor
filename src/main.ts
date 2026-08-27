@@ -43,6 +43,39 @@ interface WorkspaceInfo {
   name: string;
 }
 
+interface TaskDefinition {
+  label: string;
+  command: string;
+  args: string[];
+  is_background: boolean;
+  cwd?: string | null;
+  depends_on: string[];
+}
+
+interface TaskExecutionResult {
+  label: string;
+  exit_code: number | null;
+  output: string;
+  problems: Array<{ message: string; severity: string }>;
+}
+
+interface TestSuite {
+  id: string;
+  label: string;
+  command: string;
+  args: string[];
+}
+
+interface WorkspaceTrust {
+  root: string;
+  trusted: boolean;
+}
+
+interface WorkspaceExcludes {
+  files: string[];
+  search: string[];
+}
+
 interface SearchMatch {
   file_path: string;
   line_number: number;
@@ -106,6 +139,8 @@ interface TerminalSession {
 
 // Global State
 let workspaceRoot = "";
+let workspaceFolders: WorkspaceInfo[] = [];
+let workspaceTrust: WorkspaceTrust | null = null;
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
 let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
 let activeEditorPane: 1 | 2 = 1;
@@ -187,10 +222,12 @@ function uriToPath(uriStr: string): string {
 window.addEventListener("DOMContentLoaded", async () => {
   try {
     workspaceRoot = await invoke<string>("get_workspace_path");
+    await refreshWorkspaceState();
     updateWorkspaceDisplay({
       root: workspaceRoot,
       name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
     });
+    await confirmWorkspaceTrust();
   } catch (e) {
     console.warn("Failed to get workspace path:", e);
   }
@@ -4224,6 +4261,31 @@ async function fetchAndRenderQuickPick(query: string) {
       id: "open_recent_workspace",
     },
     {
+      title: "Workspace: Add Folder (フォルダーを追加)",
+      shortcut: "",
+      id: "add_workspace_folder",
+    },
+    {
+      title: "Workspace: Remove Active Folder (アクティブルートを削除)",
+      shortcut: "",
+      id: "remove_workspace_folder",
+    },
+    {
+      title: "Workspace: Select Folder (アクティブルートを選択)",
+      shortcut: "",
+      id: "select_workspace_folder",
+    },
+    {
+      title: "Workspace: Manage Trust (ワークスペース信頼を管理)",
+      shortcut: "",
+      id: "manage_workspace_trust",
+    },
+    {
+      title: "Workspace: Configure Excludes (除外規則を設定)",
+      shortcut: "",
+      id: "configure_workspace_excludes",
+    },
+    {
       title: "File: Save As Dialog (名前を付けて保存)",
       shortcut: "Ctrl+Shift+S",
       id: "save_as_dialog",
@@ -4242,6 +4304,16 @@ async function fetchAndRenderQuickPick(query: string) {
       title: "Terminal: New Terminal (新規ターミナル作成)",
       shortcut: "Ctrl+Shift+`",
       id: "new_terminal",
+    },
+    {
+      title: "Tasks: Run Task (タスクの実行)",
+      shortcut: "",
+      id: "run_workspace_task",
+    },
+    {
+      title: "Testing: Run Tests (テストを実行)",
+      shortcut: "",
+      id: "run_workspace_tests",
     },
     {
       title: "Git: Open SCM View (ソース管理を開く)",
@@ -4469,6 +4541,21 @@ function executeCommand(id: string) {
     case "open_recent_workspace":
       openRecentWorkspacePicker();
       break;
+    case "add_workspace_folder":
+      addWorkspaceFolder();
+      break;
+    case "remove_workspace_folder":
+      removeActiveWorkspaceFolder();
+      break;
+    case "select_workspace_folder":
+      openWorkspaceFolderPicker();
+      break;
+    case "manage_workspace_trust":
+      toggleWorkspaceTrust();
+      break;
+    case "configure_workspace_excludes":
+      configureWorkspaceExcludes();
+      break;
     case "save_as_dialog":
       saveNativeFileDialog();
       break;
@@ -4481,6 +4568,12 @@ function executeCommand(id: string) {
     case "new_terminal":
       createNewTerminalSession();
       toggleTerminal(true);
+      break;
+    case "run_workspace_task":
+      openWorkspaceTaskPicker();
+      break;
+    case "run_workspace_tests":
+      openWorkspaceTestPicker();
       break;
     case "open_scm":
       document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
@@ -4543,13 +4636,143 @@ async function openNativeFileDialog() {
   }
 }
 
+async function openWorkspaceTestPicker() {
+  try {
+    const suites = await invoke<TestSuite[]>("list_workspace_test_suites");
+    if (suites.length === 0) {
+      showToast("テストランナーを検出できませんでした", "info");
+      return;
+    }
+    quickPickItems = suites.map((suite) => ({
+      id: `test:${suite.id}`,
+      title: `Testing: ${suite.label}`,
+      subtitle: [suite.command, ...suite.args].join(" "),
+      action: () => runWorkspaceTestSuite(suite),
+    }));
+    quickPickSelectedIndex = 0;
+    document.getElementById("quickpick-modal")?.classList.remove("hidden");
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
+    if (input) {
+      input.value = "";
+      input.placeholder = "実行するテストスイートを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to discover tests:", error);
+    showToast(`テストを検出できませんでした: ${error}`, "error");
+  }
+}
+
+async function runWorkspaceTestSuite(suite: TestSuite) {
+  try {
+    const result = await invoke<TaskExecutionResult>(
+      "run_workspace_test_suite",
+      { id: suite.id },
+    );
+    const output = document.getElementById("output-container");
+    if (output)
+      output.textContent = result.output || `${suite.label}: 出力はありません`;
+    document.getElementById("panel-tab-output")?.click();
+    showStatusMessage(
+      `${suite.label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`,
+    );
+  } catch (error) {
+    console.error("Failed to run tests:", error);
+    showToast(`テストを実行できませんでした: ${error}`, "error");
+  }
+}
+
+async function openWorkspaceTaskPicker() {
+  try {
+    const tasks = await invoke<TaskDefinition[]>("list_workspace_tasks");
+    if (tasks.length === 0) {
+      showToast(
+        ".oxide/tasks.json または .vscode/tasks.json に実行可能なタスクがありません",
+        "info",
+      );
+      return;
+    }
+    quickPickItems = tasks.map((task) => ({
+      id: `task:${task.label}`,
+      title: `$(tools) ${task.label}`,
+      subtitle: [task.command, ...task.args].join(" "),
+      action: () => runWorkspaceTask(task.label),
+    }));
+    quickPickSelectedIndex = 0;
+    const modal = document.getElementById("quickpick-modal");
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
+    modal?.classList.remove("hidden");
+    if (input) {
+      input.value = "";
+      input.placeholder = "実行するタスクを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to load workspace tasks:", error);
+    showToast(`タスクを読み込めませんでした: ${error}`, "error");
+  }
+}
+
+async function runWorkspaceTask(label: string) {
+  try {
+    const result = await invoke<TaskExecutionResult>("run_workspace_task", {
+      label,
+    });
+    const output = document.getElementById("output-container");
+    if (output)
+      output.textContent = result.output || `${label}: 出力はありません`;
+    document.getElementById("panel-tab-output")?.click();
+    showStatusMessage(
+      `${label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`,
+    );
+  } catch (error) {
+    console.error("Failed to run workspace task:", error);
+    showToast(`タスクを実行できませんでした: ${error}`, "error");
+  }
+}
+
 function updateWorkspaceDisplay(workspace: WorkspaceInfo) {
   const workspaceName = document.getElementById("workspace-name");
+  const isTrusted =
+    workspaceTrust?.root === workspace.root && workspaceTrust.trusted;
+  const trustLabel = isTrusted ? "信頼済み" : "未信頼";
   if (workspaceName) {
-    workspaceName.textContent = workspace.name;
-    workspaceName.title = workspace.root;
+    workspaceName.textContent = `${workspace.name} (${trustLabel})`;
+    workspaceName.title = `${workspace.root}\nワークスペース: ${trustLabel}`;
   }
   document.title = `${workspace.name} - Oxide Editor`;
+}
+
+async function refreshWorkspaceState() {
+  const [folders, trust] = await Promise.all([
+    invoke<WorkspaceInfo[]>("get_workspace_folders"),
+    invoke<WorkspaceTrust>("get_workspace_trust"),
+  ]);
+  workspaceFolders = folders;
+  workspaceTrust = trust;
+}
+
+async function confirmWorkspaceTrust() {
+  if (workspaceTrust?.trusted) return;
+  const trusted = confirm(
+    "このフォルダーは未信頼です。ターミナル、タスク、言語サーバー、拡張機能の実行はブロックされています。信頼しますか？",
+  );
+  if (trusted) {
+    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
+      trusted: true,
+    });
+    updateWorkspaceDisplay({
+      root: workspaceRoot,
+      name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
+    });
+    showStatusMessage("ワークスペースを信頼しました");
+  }
 }
 
 async function switchWorkspace(workspace: WorkspaceInfo) {
@@ -4563,6 +4786,7 @@ async function switchWorkspace(workspace: WorkspaceInfo) {
     );
   }
   workspaceRoot = workspace.root;
+  await refreshWorkspaceState();
   activeLspServers.clear();
   collapsedFolders.clear();
 
@@ -4577,6 +4801,7 @@ async function switchWorkspace(workspace: WorkspaceInfo) {
   await loadWorkspaceFiles();
   await updateGitStatus();
   await restoreSessionState();
+  await confirmWorkspaceTrust();
   showStatusMessage(`ワークスペースを開きました: ${workspace.root}`);
 }
 
@@ -4632,6 +4857,164 @@ async function openRecentWorkspacePicker() {
   } catch (e) {
     console.error("Failed to load recent workspaces:", e);
     showToast("最近使用したワークスペースを読み込めませんでした", "error");
+  }
+}
+
+async function toggleWorkspaceTrust() {
+  try {
+    const currentTrust =
+      workspaceTrust || (await invoke<WorkspaceTrust>("get_workspace_trust"));
+    const nextTrusted = !currentTrust.trusted;
+    if (
+      nextTrusted &&
+      !confirm(
+        "このフォルダーを信頼すると、ターミナル、タスク、言語サーバー、拡張機能がこのフォルダーのコードを実行できるようになります。続行しますか？",
+      )
+    ) {
+      return;
+    }
+
+    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
+      trusted: nextTrusted,
+    });
+    updateWorkspaceDisplay({
+      root: workspaceRoot,
+      name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
+    });
+    showStatusMessage(
+      nextTrusted
+        ? "ワークスペースを信頼しました"
+        : "ワークスペースの信頼を取り消しました",
+    );
+  } catch (error) {
+    console.error("Failed to update workspace trust:", error);
+    showToast(`ワークスペースの信頼を更新できませんでした: ${error}`, "error");
+  }
+}
+
+async function addWorkspaceFolder() {
+  try {
+    const selected = await openDialog({ directory: true, multiple: false });
+    if (!selected || typeof selected !== "string") return;
+
+    workspaceFolders = await invoke<WorkspaceInfo[]>("add_workspace_folder", {
+      path: selected,
+    });
+    showStatusMessage(`ワークスペースフォルダーを追加しました: ${selected}`);
+  } catch (error) {
+    console.error("Failed to add workspace folder:", error);
+    showToast(
+      `ワークスペースフォルダーを追加できませんでした: ${error}`,
+      "error",
+    );
+  }
+}
+
+async function removeActiveWorkspaceFolder() {
+  if (workspaceFolders.length <= 1) {
+    showToast("最後のワークスペースフォルダーは削除できません", "error");
+    return;
+  }
+  if (
+    !confirm(
+      `アクティブなワークスペースフォルダーを削除しますか？\n${workspaceRoot}`,
+    )
+  )
+    return;
+
+  try {
+    workspaceFolders = await invoke<WorkspaceInfo[]>(
+      "remove_workspace_folder",
+      { path: workspaceRoot },
+    );
+    const root = await invoke<string>("get_workspace_path");
+    const nextWorkspace = workspaceFolders.find(
+      (folder) => folder.root === root,
+    );
+    if (!nextWorkspace)
+      throw new Error("次のアクティブなワークスペースが見つかりません");
+    await switchWorkspace(nextWorkspace);
+  } catch (error) {
+    console.error("Failed to remove workspace folder:", error);
+    showToast(
+      `ワークスペースフォルダーを削除できませんでした: ${error}`,
+      "error",
+    );
+  }
+}
+
+async function openWorkspaceFolderPicker() {
+  try {
+    await refreshWorkspaceState();
+    quickPickItems = workspaceFolders.map((folder) => ({
+      id: `workspace-folder:${folder.root}`,
+      title: `フォルダー: ${folder.name}`,
+      subtitle:
+        folder.root === workspaceRoot
+          ? `${folder.root} (アクティブ)`
+          : folder.root,
+      action: async () => {
+        const selected = await invoke<WorkspaceInfo>(
+          "select_workspace_folder",
+          { path: folder.root },
+        );
+        await switchWorkspace(selected);
+      },
+    }));
+    quickPickSelectedIndex = 0;
+    const modal = document.getElementById("quickpick-modal");
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
+    modal?.classList.remove("hidden");
+    if (input) {
+      input.value = "";
+      input.placeholder = "アクティブにするワークスペースフォルダーを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to select workspace folder:", error);
+    showToast(
+      `ワークスペースフォルダーを読み込めませんでした: ${error}`,
+      "error",
+    );
+  }
+}
+
+function parseExcludePatterns(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((pattern) => pattern.trim())
+    .filter(Boolean);
+}
+
+async function configureWorkspaceExcludes() {
+  try {
+    const current = await invoke<WorkspaceExcludes>("get_workspace_excludes");
+    const files = prompt(
+      "ファイルツリーから除外するパターンをカンマまたは改行で区切って入力してください。例: generated, *.tmp",
+      current.files.join(", "),
+    );
+    if (files === null) return;
+    const search = prompt(
+      "検索・置換から追加で除外するパターンをカンマまたは改行で区切って入力してください。例: *.snapshot",
+      current.search.join(", "),
+    );
+    if (search === null) return;
+
+    await invoke<WorkspaceExcludes>("set_workspace_excludes", {
+      files: parseExcludePatterns(files),
+      search: parseExcludePatterns(search),
+    });
+    await loadWorkspaceFiles();
+    showStatusMessage("ワークスペースの除外規則を更新しました");
+  } catch (error) {
+    console.error("Failed to update workspace excludes:", error);
+    showToast(
+      `ワークスペースの除外規則を更新できませんでした: ${error}`,
+      "error",
+    );
   }
 }
 

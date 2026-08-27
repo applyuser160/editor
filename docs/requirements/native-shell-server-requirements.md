@@ -1,6 +1,6 @@
 # VS Code Native Shell & Server レイヤー 機能要件定義書 (ISO 29148 準拠)
 
-> 本ドキュメントは、Microsoft VS Code のネイティブシェル (`src/vs/code/`)、リモートサーバー (`src/vs/server/`)、および組み込み拡張機能 (`extensions/`) を Rust ネイティブ環境へ移植するための機能要件定義書です。
+> **文書状態: 計画（部分実装あり）。** 本ドキュメントは、Microsoft VS Code のネイティブシェル (`src/vs/code/`)、リモートサーバー (`src/vs/server/`)、および組み込み拡張機能 (`extensions/`) を Rust ネイティブ環境へ移植する場合の機能要件定義書です。現行実装にはTauriデスクトップシェルが含まれますが、リモート開発とVS Code組み込み拡張機能の互換性は未実装です。現在提供する機能は[実装状況とロードマップ](../implementation-status.md)を参照してください。
 
 ---
 

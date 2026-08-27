@@ -1,10 +1,10 @@
 pub mod commands;
-pub mod debug_config;
 pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
 pub mod task_runner;
+pub mod test_runner;
 pub mod workspace;
 
 use extension_host::ExtensionHostState;
@@ -49,6 +49,10 @@ pub fn run() {
             commands::spawn_pty,
             commands::write_pty,
             commands::resize_pty,
+            commands::list_workspace_tasks,
+            commands::run_workspace_task,
+            commands::list_workspace_test_suites,
+            commands::run_workspace_test_suite,
             commands::list_workspace_files,
             commands::read_file_content,
             commands::write_file_content,
@@ -67,7 +71,15 @@ pub fn run() {
             commands::git_unstage_file,
             commands::execute_terminal_command,
             commands::get_workspace_path,
+            commands::get_workspace_folders,
             commands::set_workspace_root,
+            commands::add_workspace_folder,
+            commands::remove_workspace_folder,
+            commands::select_workspace_folder,
+            commands::get_workspace_trust,
+            commands::set_workspace_trust,
+            commands::get_workspace_excludes,
+            commands::set_workspace_excludes,
             commands::list_recent_workspaces,
             commands::remove_recent_workspace,
             commands::reveal_in_os_explorer,
