@@ -1,39 +1,40 @@
 pub mod commands;
-pub mod debug_config;
 pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
-pub mod task_runner;
+pub mod workspace;
 
 use extension_host::ExtensionHostState;
 use file_watcher::FileWatcherManager;
 use lsp_client::LspState;
 use pty_manager::PtyState;
+use workspace::WorkspaceState;
 
 pub fn run() {
     let pty_state = PtyState::new();
     let ext_state = ExtensionHostState::new();
     let lsp_state = LspState::new();
+    let workspace_state = WorkspaceState::new();
+    let initial_workspace = workspace_state.root();
 
     tauri::Builder::default()
         .manage(pty_state)
         .manage(ext_state)
         .manage(lsp_state)
+        .manage(workspace_state)
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            if let Ok(cur_dir) = std::env::current_dir() {
-                let _ = FileWatcherManager::start_watching(app.handle().clone(), &cur_dir);
-            }
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .setup(move |app| {
+            let _ = FileWatcherManager::start_watching(app.handle().clone(), &initial_workspace);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::lsp_start_server,
-            commands::lsp_stop_server,
             commands::lsp_send_notification,
+            commands::lsp_stop_all,
             commands::lsp_send_request,
-            commands::list_debug_configurations,
-            commands::validate_debug_configuration,
             commands::search_openvsx_extensions,
             commands::install_openvsx_extension,
             commands::uninstall_extension,
@@ -57,17 +58,17 @@ pub fn run() {
             commands::search_in_workspace,
             commands::find_rust_stdlib_definition,
             commands::git_get_status,
-            commands::git_get_diff,
             commands::git_commit,
             commands::git_push,
             commands::git_pull,
             commands::git_stage_file,
             commands::git_unstage_file,
             commands::execute_terminal_command,
-            commands::run_named_task,
             commands::get_workspace_path,
+            commands::set_workspace_root,
+            commands::list_recent_workspaces,
+            commands::remove_recent_workspace,
             commands::reveal_in_os_explorer,
-            commands::preview_workspace_text_edit,
             commands::replace_in_workspace
         ])
         .run(tauri::generate_context!())

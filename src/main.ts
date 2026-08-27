@@ -35,6 +35,11 @@ interface FileEntry {
   depth: number;
 }
 
+interface WorkspaceInfo {
+  root: string;
+  name: string;
+}
+
 interface SearchMatch {
   file_path: string;
   line_number: number;
@@ -170,6 +175,10 @@ function uriToPath(uriStr: string): string {
 window.addEventListener("DOMContentLoaded", async () => {
   try {
     workspaceRoot = await invoke<string>("get_workspace_path");
+    updateWorkspaceDisplay({
+      root: workspaceRoot,
+      name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
+    });
   } catch (e) {
     console.warn("Failed to get workspace path:", e);
   }
@@ -592,7 +601,7 @@ async function ensureLspServerStarted(lang: string) {
   try {
     const res = await invoke<string>("lsp_start_server", {
       lang,
-      workspaceRoot: ".",
+      workspaceRoot,
     });
     activeLspServers.add(lang);
     showStatusMessage(`LSP: ${res}`);
@@ -2112,18 +2121,22 @@ async function restoreLastClosedTab() {
 }
 
 // Session State Persistence (Issue #34)
+function workspaceSessionKey(key: string) {
+  return `oxide_workspace:${encodeURIComponent(workspaceRoot)}:${key}`;
+}
+
 function saveSessionState() {
   const tabPaths = Array.from(openTabs.keys());
-  localStorage.setItem("oxide_session_tabs", JSON.stringify(tabPaths));
+  localStorage.setItem(workspaceSessionKey("tabs"), JSON.stringify(tabPaths));
   if (activeFilePath) {
-    localStorage.setItem("oxide_session_active_tab", activeFilePath);
+    localStorage.setItem(workspaceSessionKey("active-tab"), activeFilePath);
   }
 }
 
 async function restoreSessionState() {
   try {
-    const savedTabsStr = localStorage.getItem("oxide_session_tabs");
-    const activeTab = localStorage.getItem("oxide_session_active_tab");
+    const savedTabsStr = localStorage.getItem(workspaceSessionKey("tabs"));
+    const activeTab = localStorage.getItem(workspaceSessionKey("active-tab"));
     if (savedTabsStr) {
       const tabPaths: string[] = JSON.parse(savedTabsStr);
       for (const p of tabPaths) {
@@ -3491,6 +3504,7 @@ async function fetchAndRenderQuickPick(query: string) {
     { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
     { title: "File: Open File Dialog (ネイティブファイルを開く)", shortcut: "Ctrl+O", id: "open_file_dialog" },
     { title: "File: Open Folder Dialog (ネイティブフォルダーを開く)", shortcut: "Ctrl+K Ctrl+O", id: "open_folder_dialog" },
+    { title: "File: Open Recent Workspace (最近使ったワークスペースを開く)", shortcut: "", id: "open_recent_workspace" },
     { title: "File: Save As Dialog (名前を付けて保存)", shortcut: "Ctrl+Shift+S", id: "save_as_dialog" },
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
@@ -3670,6 +3684,9 @@ function executeCommand(id: string) {
     case "open_folder_dialog":
       openNativeFolderDialog();
       break;
+    case "open_recent_workspace":
+      openRecentWorkspacePicker();
+      break;
     case "save_as_dialog":
       saveNativeFileDialog();
       break;
@@ -3736,6 +3753,40 @@ async function openNativeFileDialog() {
   }
 }
 
+function updateWorkspaceDisplay(workspace: WorkspaceInfo) {
+  const workspaceName = document.getElementById("workspace-name");
+  if (workspaceName) {
+    workspaceName.textContent = workspace.name;
+    workspaceName.title = workspace.root;
+  }
+  document.title = `${workspace.name} - Oxide Editor`;
+}
+
+async function switchWorkspace(workspace: WorkspaceInfo) {
+  saveSessionState();
+  try {
+    await invoke<number>("lsp_stop_all");
+  } catch (e) {
+    console.warn("Failed to stop language servers while switching workspace:", e);
+  }
+  workspaceRoot = workspace.root;
+  activeLspServers.clear();
+  collapsedFolders.clear();
+
+  openTabs.forEach((tab) => tab.model.dispose());
+  openTabs.clear();
+  activeFilePath = null;
+  pane1FilePath = null;
+  pane2FilePath = null;
+  updateTabBar();
+  updateWorkspaceDisplay(workspace);
+
+  await loadWorkspaceFiles();
+  await updateGitStatus();
+  await restoreSessionState();
+  showStatusMessage(`ワークスペースを開きました: ${workspace.root}`);
+}
+
 async function openNativeFolderDialog() {
   try {
     const selected = await openDialog({
@@ -3743,11 +3794,45 @@ async function openNativeFolderDialog() {
       multiple: false,
     });
     if (selected && typeof selected === "string") {
-      showStatusMessage(`フォルダーを開きました: ${selected}`);
-      await loadWorkspaceFiles();
+      const workspace = await invoke<WorkspaceInfo>("set_workspace_root", { path: selected });
+      await switchWorkspace(workspace);
     }
   } catch (e) {
     console.error("Open folder dialog error:", e);
+    showToast(`ワークスペースを開けませんでした: ${e}`, "error");
+  }
+}
+
+async function openRecentWorkspacePicker() {
+  try {
+    const recent = await invoke<WorkspaceInfo[]>("list_recent_workspaces");
+    if (recent.length === 0) {
+      showToast("最近使用したワークスペースはありません", "info");
+      return;
+    }
+
+    quickPickItems = recent.map((workspace) => ({
+      id: `recent:${workspace.root}`,
+      title: `📁 ${workspace.name}`,
+      subtitle: workspace.root,
+      action: async () => {
+        const selected = await invoke<WorkspaceInfo>("set_workspace_root", { path: workspace.root });
+        await switchWorkspace(selected);
+      },
+    }));
+    quickPickSelectedIndex = 0;
+    const modal = document.getElementById("quickpick-modal");
+    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    modal?.classList.remove("hidden");
+    if (input) {
+      input.value = "";
+      input.placeholder = "最近使用したワークスペースを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (e) {
+    console.error("Failed to load recent workspaces:", e);
+    showToast("最近使用したワークスペースを読み込めませんでした", "error");
   }
 }
 

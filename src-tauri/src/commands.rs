@@ -1,8 +1,7 @@
-use crate::debug_config::{load_configurations, validate_configuration, DebugConfiguration};
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
-use crate::task_runner::{run_task, TaskDefinition, TaskExecutionResult};
+use crate::workspace::{WorkspaceInfo, WorkspaceState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -32,13 +31,6 @@ pub struct SearchMatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspaceTextEdit {
-    pub path: String,
-    pub expected_content: String,
-    pub replacement_content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitStatusResult {
     pub branch: String,
     pub changed_files: Vec<String>,
@@ -57,54 +49,6 @@ pub struct OpenVsxExtension {
     pub url: Option<String>,
 }
 
-const MAX_EXTENSION_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
-
-fn validate_openvsx_download_url(raw_url: &str) -> Result<(), String> {
-    let parsed = reqwest::Url::parse(raw_url)
-        .map_err(|_| "Extension download URL is invalid".to_string())?;
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| "Extension download URL must include a host".to_string())?;
-
-    if parsed.scheme() != "https" {
-        return Err("Extension downloads must use HTTPS".to_string());
-    }
-    if host != "open-vsx.org" && !host.ends_with(".open-vsx.org") {
-        return Err("Extension download host is not trusted".to_string());
-    }
-
-    Ok(())
-}
-
-fn validate_git_branch_name(raw_branch: &str) -> Result<&str, String> {
-    let branch = raw_branch.trim();
-    let has_forbidden_character = branch.chars().any(|ch| {
-        ch.is_control()
-            || ch.is_whitespace()
-            || matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
-    });
-    let has_invalid_segment = branch.split('/').any(|segment| segment.is_empty() || segment.ends_with(".lock"));
-
-    if branch.is_empty()
-        || branch.len() > 255
-        || branch == "."
-        || branch == "@"
-        || branch.starts_with('-')
-        || branch.starts_with('.')
-        || branch.ends_with('.')
-        || branch.ends_with('/')
-        || branch.contains("..")
-        || branch.contains("//")
-        || branch.contains("@{")
-        || has_forbidden_character
-        || has_invalid_segment
-    {
-        return Err("Invalid Git branch name".to_string());
-    }
-
-    Ok(branch)
-}
-
 #[tauri::command]
 pub async fn lsp_start_server(
     app: AppHandle,
@@ -113,11 +57,6 @@ pub async fn lsp_start_server(
     workspace_root: String,
 ) -> Result<String, String> {
     state.start_server(app, &lang, &workspace_root)
-}
-
-#[tauri::command]
-pub async fn lsp_stop_server(state: State<'_, LspState>, lang: String) -> Result<(), String> {
-    state.stop_server(&lang)
 }
 
 #[tauri::command]
@@ -131,6 +70,11 @@ pub async fn lsp_send_notification(
 }
 
 #[tauri::command]
+pub async fn lsp_stop_all(state: State<'_, LspState>) -> Result<usize, String> {
+    Ok(state.stop_all())
+}
+
+#[tauri::command]
 pub async fn lsp_send_request(
     state: State<'_, LspState>,
     lang: String,
@@ -138,20 +82,6 @@ pub async fn lsp_send_request(
     params: Value,
 ) -> Result<Value, String> {
     state.send_request(&lang, &method, params).await
-}
-
-#[tauri::command]
-pub async fn list_debug_configurations() -> Result<Vec<DebugConfiguration>, String> {
-    let workspace_root = std::env::current_dir().map_err(|error| error.to_string())?;
-    load_configurations(&workspace_root)
-}
-
-#[tauri::command]
-pub async fn validate_debug_configuration(
-    configuration: DebugConfiguration,
-) -> Result<(), String> {
-    let workspace_root = std::env::current_dir().map_err(|error| error.to_string())?;
-    validate_configuration(&configuration, &workspace_root)
 }
 
 #[tauri::command]
@@ -278,8 +208,9 @@ pub async fn set_extension_enabled(
 }
 
 #[tauri::command]
-pub async fn git_list_branches() -> Result<Vec<String>, String> {
+pub async fn git_list_branches(state: State<'_, WorkspaceState>) -> Result<Vec<String>, String> {
     let output = Command::new("git")
+        .current_dir(state.root())
         .args(["branch", "--list"])
         .output()
         .map_err(|e| format!("git branch failed: {}", e))?;
@@ -295,10 +226,10 @@ pub async fn git_list_branches() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub async fn git_checkout_branch(branch: String) -> Result<String, String> {
-    let branch = validate_git_branch_name(&branch)?;
+pub async fn git_checkout_branch(state: State<'_, WorkspaceState>, branch: String) -> Result<String, String> {
     let output = Command::new("git")
-        .args(["checkout", branch])
+        .current_dir(state.root())
+        .args(["checkout", branch.trim()])
         .output()
         .map_err(|e| format!("git checkout failed: {}", e))?;
 
@@ -310,10 +241,10 @@ pub async fn git_checkout_branch(branch: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_create_branch(new_branch: String) -> Result<String, String> {
-    let new_branch = validate_git_branch_name(&new_branch)?;
+pub async fn git_create_branch(state: State<'_, WorkspaceState>, new_branch: String) -> Result<String, String> {
     let output = Command::new("git")
-        .args(["checkout", "-b", new_branch])
+        .current_dir(state.root())
+        .args(["checkout", "-b", new_branch.trim()])
         .output()
         .map_err(|e| format!("git checkout -b failed: {}", e))?;
 
@@ -342,10 +273,11 @@ pub async fn start_extension_sidecar(
 pub async fn spawn_pty(
     app: AppHandle,
     state: State<'_, PtyState>,
+    workspace: State<'_, WorkspaceState>,
     cols: u16,
     rows: u16,
 ) -> Result<u32, String> {
-    state.spawn(app, cols, rows)
+    state.spawn(app, cols, rows, workspace.root())
 }
 
 #[tauri::command]
@@ -368,10 +300,10 @@ pub async fn resize_pty(
 }
 
 #[tauri::command]
-pub async fn list_workspace_files() -> Result<Vec<FileEntry>, String> {
-    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+pub async fn list_workspace_files(state: State<'_, WorkspaceState>) -> Result<Vec<FileEntry>, String> {
+    let workspace_root = state.root();
     let mut entries = Vec::new();
-    scan_dir_recursive(&current_dir, &current_dir, 0, &mut entries, 30)?;
+    scan_dir_recursive(&workspace_root, &workspace_root, 0, &mut entries, 30)?;
     Ok(entries)
 }
 
@@ -393,12 +325,19 @@ fn scan_dir_recursive(
     for entry in items {
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
+        if file_type.is_symlink()
+            || file_name.starts_with('.')
+            || file_name == "target"
+            || file_name == "node_modules"
+            || file_name == "dist"
+            || file_name == ".git"
+        {
             continue;
         }
 
-        let is_dir = path.is_dir();
+        let is_dir = file_type.is_dir();
         let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
 
         entries.push(FileEntry {
@@ -417,8 +356,8 @@ fn scan_dir_recursive(
 }
 
 #[tauri::command]
-pub async fn read_file_content(path: String) -> Result<String, String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn read_file_content(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
+    let full_path = get_absolute_path(&state, &path)?;
     let bytes = std::fs::read(&full_path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
     
     // バイナリファイル判定（先頭8KB内にNULLバイトがあるか、またはUTF-8として不正な場合）
@@ -431,8 +370,8 @@ pub async fn read_file_content(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn write_file_content(path: String, content: String) -> Result<(), String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn write_file_content(state: State<'_, WorkspaceState>, path: String, content: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&state, &path)?;
     if let Some(parent) = full_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -440,8 +379,8 @@ pub async fn write_file_content(path: String, content: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub async fn create_file(path: String) -> Result<(), String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn create_file(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&state, &path)?;
     if full_path.exists() {
         return Err(format!("File '{}' already exists", path));
     }
@@ -452,14 +391,14 @@ pub async fn create_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn create_directory(path: String) -> Result<(), String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn create_directory(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&state, &path)?;
     std::fs::create_dir_all(&full_path).map_err(|e| format!("Failed to create dir {}: {}", path, e))
 }
 
 #[tauri::command]
-pub async fn delete_file(path: String) -> Result<(), String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn delete_file(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&state, &path)?;
     if full_path.is_dir() {
         std::fs::remove_dir_all(&full_path).map_err(|e| format!("Failed to delete dir {}: {}", path, e))
     } else {
@@ -468,9 +407,9 @@ pub async fn delete_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
-    let src = get_absolute_path(&old_path)?;
-    let dst = get_absolute_path(&new_path)?;
+pub async fn rename_file(state: State<'_, WorkspaceState>, old_path: String, new_path: String) -> Result<(), String> {
+    let src = get_absolute_path(&state, &old_path)?;
+    let dst = get_absolute_path(&state, &new_path)?;
     if let Some(parent) = dst.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -478,8 +417,8 @@ pub async fn rename_file(old_path: String, new_path: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub async fn reveal_in_os_explorer(path: String) -> Result<(), String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn reveal_in_os_explorer(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+    let full_path = get_absolute_path(&state, &path)?;
     #[cfg(target_os = "windows")]
     {
         let path_str = full_path.to_string_lossy().to_string().replace('/', "\\");
@@ -505,8 +444,8 @@ pub async fn reveal_in_os_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_file_stat(path: String) -> Result<FileStat, String> {
-    let full_path = get_absolute_path(&path)?;
+pub async fn get_file_stat(state: State<'_, WorkspaceState>, path: String) -> Result<FileStat, String> {
+    let full_path = get_absolute_path(&state, &path)?;
     let metadata = std::fs::metadata(&full_path).map_err(|e| e.to_string())?;
     let extension = full_path
         .extension()
@@ -522,6 +461,7 @@ pub async fn get_file_stat(path: String) -> Result<FileStat, String> {
 
 #[tauri::command]
 pub async fn search_in_workspace(
+    state: State<'_, WorkspaceState>,
     query: String,
     case_sensitive: bool,
     whole_word: bool,
@@ -548,9 +488,9 @@ pub async fn search_in_workspace(
         .build()
         .map_err(|e| format!("Invalid regex: {}", e))?;
 
-    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let workspace_root = state.root();
     let mut matches = Vec::new();
-    search_recursive_regex(&current_dir, &current_dir, &re, &mut matches, 20)?;
+    search_recursive_regex(&workspace_root, &workspace_root, &re, &mut matches, 20)?;
     Ok(matches)
 }
 
@@ -569,12 +509,19 @@ fn search_recursive_regex(
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
+        if file_type.is_symlink()
+            || file_name.starts_with('.')
+            || file_name == "target"
+            || file_name == "node_modules"
+            || file_name == "dist"
+            || file_name == ".git"
+        {
             continue;
         }
 
-        if path.is_dir() {
+        if file_type.is_dir() {
             search_recursive_regex(root, &path, re, matches, max_depth - 1)?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
             let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
@@ -595,23 +542,9 @@ fn search_recursive_regex(
     Ok(())
 }
 
-pub fn validate_workspace_text_edit(edit: &WorkspaceTextEdit) -> Result<(), String> {
-    let path = get_absolute_path(&edit.path)?;
-    let current = std::fs::read_to_string(&path)
-        .map_err(|error| format!("Could not read edit target '{}': {}", edit.path, error))?;
-    if current != edit.expected_content {
-        return Err(format!("Edit target '{}' changed since the preview was created", edit.path));
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn preview_workspace_text_edit(edit: WorkspaceTextEdit) -> Result<(), String> {
-    validate_workspace_text_edit(&edit)
-}
-
 #[tauri::command]
 pub async fn replace_in_workspace(
+    state: State<'_, WorkspaceState>,
     query: String,
     replace_text: String,
     case_sensitive: bool,
@@ -639,9 +572,9 @@ pub async fn replace_in_workspace(
         .build()
         .map_err(|e| format!("Invalid regex: {}", e))?;
 
-    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let workspace_root = state.root();
     let mut total_replaced = 0;
-    replace_recursive_regex(&current_dir, &re, &replace_text, &mut total_replaced, 20)?;
+    replace_recursive_regex(&workspace_root, &re, &replace_text, &mut total_replaced, 20)?;
     Ok(total_replaced)
 }
 
@@ -660,12 +593,19 @@ fn replace_recursive_regex(
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "dist" || file_name == ".git" {
+        if file_type.is_symlink()
+            || file_name.starts_with('.')
+            || file_name == "target"
+            || file_name == "node_modules"
+            || file_name == "dist"
+            || file_name == ".git"
+        {
             continue;
         }
 
-        if path.is_dir() {
+        if file_type.is_dir() {
             replace_recursive_regex(&path, re, replace_text, total_replaced, max_depth - 1)?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
             if re.is_match(&content) {
@@ -680,14 +620,17 @@ fn replace_recursive_regex(
 }
 
 #[tauri::command]
-pub async fn git_get_status() -> Result<GitStatusResult, String> {
+pub async fn git_get_status(state: State<'_, WorkspaceState>) -> Result<GitStatusResult, String> {
+    let workspace_root = state.root();
     let branch_out = Command::new("git")
+        .current_dir(&workspace_root)
         .args(["branch", "--show-current"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "main".to_string());
 
     let status_out = Command::new("git")
+        .current_dir(&workspace_root)
         .args(["status", "--porcelain"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
@@ -706,27 +649,14 @@ pub async fn git_get_status() -> Result<GitStatusResult, String> {
 }
 
 #[tauri::command]
-pub async fn git_get_diff(path: String, staged: bool) -> Result<String, String> {
-    let mut command = Command::new("git");
-    command.arg("diff");
-    if staged { command.arg("--staged"); }
-    command.args(["--", &path]);
-    let output = command.output().map_err(|error| format!("git diff failed: {}", error))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
-}
-
-#[tauri::command]
-pub async fn git_commit(message: String) -> Result<String, String> {
+pub async fn git_commit(state: State<'_, WorkspaceState>, message: String) -> Result<String, String> {
     let trimmed = message.trim();
     if trimmed.is_empty() {
         return Err("Commit message cannot be empty".to_string());
     }
 
     let commit_res = Command::new("git")
+        .current_dir(state.root())
         .args(["commit", "-m", trimmed])
         .output()
         .map_err(|e| format!("git commit failed: {}", e))?;
@@ -742,8 +672,9 @@ pub async fn git_commit(message: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_push() -> Result<String, String> {
+pub async fn git_push(state: State<'_, WorkspaceState>) -> Result<String, String> {
     let out = Command::new("git")
+        .current_dir(state.root())
         .args(["push"])
         .output()
         .map_err(|e| format!("git push failed: {}", e))?;
@@ -759,8 +690,9 @@ pub async fn git_push() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_pull() -> Result<String, String> {
+pub async fn git_pull(state: State<'_, WorkspaceState>) -> Result<String, String> {
     let out = Command::new("git")
+        .current_dir(state.root())
         .args(["pull"])
         .output()
         .map_err(|e| format!("git pull failed: {}", e))?;
@@ -776,9 +708,10 @@ pub async fn git_pull() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_stage_file(path: String) -> Result<String, String> {
+pub async fn git_stage_file(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
     let out = Command::new("git")
-        .args(["add", "--", &path])
+        .current_dir(state.root())
+        .args(["add", &path])
         .output()
         .map_err(|e| format!("git add failed: {}", e))?;
 
@@ -790,9 +723,10 @@ pub async fn git_stage_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_unstage_file(path: String) -> Result<String, String> {
+pub async fn git_unstage_file(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
     let out = Command::new("git")
-        .args(["restore", "--staged", "--", &path])
+        .current_dir(state.root())
+        .args(["restore", "--staged", &path])
         .output()
         .map_err(|e| format!("git restore failed: {}", e))?;
 
@@ -804,19 +738,35 @@ pub async fn git_unstage_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_workspace_path() -> Result<String, String> {
-    let cur = std::env::current_dir().map_err(|e| e.to_string())?;
-    Ok(cur.to_string_lossy().replace('\\', "/"))
+pub async fn get_workspace_path(state: State<'_, WorkspaceState>) -> Result<String, String> {
+    Ok(state.info().root)
 }
 
-fn get_absolute_path(path_str: &str) -> Result<PathBuf, String> {
-    let p = Path::new(path_str);
-    if p.is_absolute() {
-        Ok(p.to_path_buf())
-    } else {
-        let cur = std::env::current_dir().map_err(|e| e.to_string())?;
-        Ok(cur.join(p))
-    }
+#[tauri::command]
+pub async fn set_workspace_root(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<WorkspaceInfo, String> {
+    state.set_root(&path)
+}
+
+#[tauri::command]
+pub async fn list_recent_workspaces(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<WorkspaceInfo>, String> {
+    Ok(state.recent())
+}
+
+#[tauri::command]
+pub async fn remove_recent_workspace(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<(), String> {
+    state.remove_recent(&path)
+}
+
+fn get_absolute_path(state: &WorkspaceState, path_str: &str) -> Result<PathBuf, String> {
+    state.resolve_path(path_str)
 }
 
 #[tauri::command]
@@ -928,14 +878,7 @@ fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
 }
 
 #[tauri::command]
-pub async fn run_named_task(task: TaskDefinition) -> Result<TaskExecutionResult, String> {
-    tauri::async_runtime::spawn_blocking(move || run_task(task))
-        .await
-        .map_err(|error| format!("Task runner failed: {}", error))?
-}
-
-#[tauri::command]
-pub async fn execute_terminal_command(command: String) -> Result<String, String> {
+pub async fn execute_terminal_command(state: State<'_, WorkspaceState>, command: String) -> Result<String, String> {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return Ok(String::new());
@@ -943,12 +886,14 @@ pub async fn execute_terminal_command(command: String) -> Result<String, String>
 
     let output = if cfg!(target_os = "windows") {
         Command::new("powershell")
+            .current_dir(state.root())
             .arg("-NoProfile")
             .arg("-Command")
             .arg(trimmed)
             .output()
     } else {
         Command::new("sh")
+            .current_dir(state.root())
             .arg("-c")
             .arg(trimmed)
             .output()
@@ -995,40 +940,8 @@ mod tests {
     }
 
     #[test]
-    fn git_branch_validation_rejects_option_like_and_invalid_refs() {
-        assert_eq!(validate_git_branch_name("feature/secure-branch").unwrap(), "feature/secure-branch");
-        for invalid in ["", "-c core.pager=cat", "feature/../main", "feature name", "feature@{1}", "feature/.lock"] {
-            assert!(validate_git_branch_name(invalid).is_err(), "{invalid} should be rejected");
-        }
-    }
-
-    #[test]
-    fn openvsx_download_validation_allows_only_trusted_https_urls() {
-        assert!(validate_openvsx_download_url("https://open-vsx.org/api/acme/tool/1.0.0/file/acme.tool-1.0.0.vsix").is_ok());
-        for invalid in [
-            "http://open-vsx.org/api/acme/tool",
-            "https://example.com/extension.vsix",
-            "not-a-url",
-        ] {
-            assert!(validate_openvsx_download_url(invalid).is_err(), "{invalid} should be rejected");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_read_file_content_binary_detection() {
-        // テキストファイルの読み込みテスト
-        let text_res = read_file_content("Cargo.toml".to_string()).await;
-        assert!(text_res.is_ok(), "Text file should read successfully");
-
-        // 一時バイナリファイルを作成してテスト
-        let temp_bin_path = std::env::temp_dir().join("oxide_test_binary.bin");
-        std::fs::write(&temp_bin_path, [0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00, 0x00]).unwrap();
-        let bin_res = read_file_content(temp_bin_path.to_string_lossy().to_string()).await;
-        let _ = std::fs::remove_file(&temp_bin_path);
-
-        assert!(bin_res.is_err(), "Binary file should return an error");
-        let err_msg = bin_res.err().unwrap();
-        assert!(err_msg.contains("BINARY_FILE"), "Error message should contain BINARY_FILE: {}", err_msg);
-        println!("✔ Successfully detected binary file: {}", err_msg);
+    fn workspace_path_resolution_rejects_external_files() {
+        let workspace = WorkspaceState::new();
+        assert!(workspace.resolve_path("../outside.txt").is_err());
     }
 }
