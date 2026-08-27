@@ -207,6 +207,23 @@ impl LspState {
         Ok(format!("LSP server for '{}' initialized successfully.", lang))
     }
 
+    pub fn stop_server(&self, lang: &str) -> Result<(), String> {
+        let session = self.sessions.lock().unwrap().remove(lang)
+            .ok_or_else(|| format!("LSP session for '{}' is not running", lang))?;
+        send_message_raw(&session.stdin, &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": session.next_request_id.fetch_add(1, Ordering::SeqCst),
+            "method": "shutdown",
+            "params": null
+        }));
+        send_message_raw(&session.stdin, &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "exit",
+            "params": null
+        }));
+        Ok(())
+    }
+
     pub fn send_notification(&self, lang: &str, method: &str, params: Value) -> Result<(), String> {
         let sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get(lang) {

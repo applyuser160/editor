@@ -29,6 +29,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::lsp_start_server,
+            commands::lsp_stop_server,
             commands::lsp_send_notification,
             commands::lsp_send_request,
             commands::list_debug_configurations,
