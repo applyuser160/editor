@@ -77,6 +77,7 @@ pub fn run() {
             commands::git_stage_all,
             commands::git_unstage_all,
             commands::git_discard_file,
+            commands::git_discard_all_unstaged,
             commands::execute_terminal_command,
             commands::get_workspace_path,
             commands::get_workspace_folders,

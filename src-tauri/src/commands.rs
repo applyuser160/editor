@@ -1068,6 +1068,29 @@ pub async fn git_unstage_all(state: State<'_, WorkspaceState>) -> Result<String,
 }
 
 #[tauri::command]
+pub async fn git_discard_all_unstaged(state: State<'_, WorkspaceState>) -> Result<String, String> {
+    let workspace_root = state.root();
+    let restore = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["restore", "--worktree", "--", "."])
+        .output()
+        .map_err(|error| format!("git restore failed: {}", error))?;
+    if !restore.status.success() {
+        return Err(String::from_utf8_lossy(&restore.stderr).trim().to_string());
+    }
+    let clean = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["clean", "-fd"])
+        .output()
+        .map_err(|error| format!("git clean failed: {}", error))?;
+    if clean.status.success() {
+        Ok("All unstaged changes discarded".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&clean.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn git_discard_file(
     state: State<'_, WorkspaceState>,
     path: String,

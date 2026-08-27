@@ -3791,25 +3791,41 @@ async function renderScmView(container: HTMLElement) {
     }
 
     container.innerHTML = `
-      <div style="padding: 6px;">
-        <div class="scm-header-actions">
-          <button id="btn-git-pull" class="scm-action-btn" title="変更を取得 (Pull)">⬇ Pull</button>
-          <button id="btn-git-push" class="scm-action-btn" title="変更を送信 (Push)">⬆ Push</button>
-          <button id="btn-git-sync" class="scm-action-btn" title="同期 (Sync)">🔄 Sync</button>
+      <div class="scm-view">
+        <div class="scm-toolbar" aria-label="ソース管理の操作">
+          <button id="btn-git-pull" class="scm-icon-btn" title="変更を取得 (Pull)">↓</button>
+          <button id="btn-git-push" class="scm-icon-btn" title="変更を送信 (Push)">↑</button>
+          <button id="btn-git-sync" class="scm-icon-btn" title="同期 (Sync)">↻</button>
         </div>
-        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
-        <textarea id="git-commit-msg" rows="2" placeholder="コミットメッセージを入力..." style="width: 100%; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 4px; font-size: 12px;"></textarea>
-        <button id="btn-commit" style="margin-top: 6px; width: 100%; padding: 6px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">✔ コミット実行 (Commit)</button>
-        <div class="scm-change-summary" style="display: flex; gap: 6px; margin-top: 12px;">
-          <button id="btn-stage-all" class="scm-action-btn" title="未ステージの変更をすべてステージに追加">＋ すべてステージ</button>
-          <button id="btn-unstage-all" class="scm-action-btn" title="ステージ済みの変更をすべてステージ解除">− すべて解除</button>
-        </div>
-        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #9cdcfe;">ステージ済みの変更 <span id="scm-staged-count"></span></div>
-        <div style="font-size: 10px; color: #888; margin-top: 2px;">次のコミットに含まれます</div>
-        <div id="scm-staged-files" style="margin-top: 4px;"></div>
-        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #aaa;">未ステージの変更 <span id="scm-unstaged-count"></span></div>
-        <div style="font-size: 10px; color: #888; margin-top: 2px;">ステージに追加するまでコミットには含まれません</div>
-        <div id="scm-unstaged-files" style="margin-top: 4px;"></div>
+        <textarea id="git-commit-msg" class="scm-commit-message" rows="2" placeholder="メッセージ (Ctrl+Enter でコミット)"></textarea>
+        <button id="btn-commit" class="scm-commit-btn">✓ コミット</button>
+
+        <section class="scm-resource-group" data-scm-group="staged">
+          <div class="scm-group-header">
+            <button class="scm-group-toggle" type="button" aria-expanded="true" aria-controls="scm-staged-files">
+              <span class="scm-group-chevron">⌄</span><span class="scm-group-title">ステージされている変更</span>
+            </button>
+            <div class="scm-group-actions">
+              <button id="btn-unstage-all" class="scm-icon-btn" title="すべてステージ解除">−</button>
+              <span id="scm-staged-count" class="scm-count-badge">0</span>
+            </div>
+          </div>
+          <div id="scm-staged-files" class="scm-group-list"></div>
+        </section>
+
+        <section class="scm-resource-group" data-scm-group="unstaged">
+          <div class="scm-group-header">
+            <button class="scm-group-toggle" type="button" aria-expanded="true" aria-controls="scm-unstaged-files">
+              <span class="scm-group-chevron">⌄</span><span class="scm-group-title">変更</span>
+            </button>
+            <div class="scm-group-actions">
+              <button id="btn-stage-all" class="scm-icon-btn" title="すべてステージ">＋</button>
+              <button id="btn-discard-all" class="scm-icon-btn" title="未ステージの変更をすべて破棄">↶</button>
+              <span id="scm-unstaged-count" class="scm-count-badge">0</span>
+            </div>
+          </div>
+          <div id="scm-unstaged-files" class="scm-group-list"></div>
+        </section>
       </div>
     `;
 
@@ -3889,9 +3905,17 @@ async function renderScmView(container: HTMLElement) {
 
     const stagedCount = document.getElementById("scm-staged-count");
     const unstagedCount = document.getElementById("scm-unstaged-count");
-    if (stagedCount) stagedCount.textContent = `(${stagedChanges.length})`;
+    if (stagedCount) stagedCount.textContent = String(stagedChanges.length);
     if (unstagedCount)
-      unstagedCount.textContent = `(${unstagedChanges.length})`;
+      unstagedCount.textContent = String(unstagedChanges.length);
+    const stagedGroup = container.querySelector<HTMLElement>(
+      '[data-scm-group="staged"]',
+    );
+    const unstagedGroup = container.querySelector<HTMLElement>(
+      '[data-scm-group="unstaged"]',
+    );
+    stagedGroup?.classList.toggle("is-empty", stagedChanges.length === 0);
+    unstagedGroup?.classList.toggle("is-empty", unstagedChanges.length === 0);
     const stagedList = document.getElementById("scm-staged-files");
     const unstagedList = document.getElementById("scm-unstaged-files");
 
@@ -3919,15 +3943,19 @@ async function renderScmView(container: HTMLElement) {
       row.tabIndex = 0;
       row.setAttribute("role", "button");
       row.setAttribute("aria-label", `${change.path} の変更を比較表示`);
+      const pathParts = change.path.replace(/\\/g, "/").split("/");
+      const fileName = pathParts.pop() || change.path;
+      const directory = pathParts.join("/");
       row.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
-          <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}" title="${statusLabel}">${change.status}</span>
-          <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(change.path)}</span>
+        <div class="scm-file-label">
+          <span>${escapeHtml(fileName)}</span>
+          <span class="scm-file-path">${escapeHtml(directory)}</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 3px;">
-          <button class="scm-stage-btn" title="${change.staged ? "ステージ解除" : "ステージに追加"}">${change.staged ? "−" : "+"}</button>
-          <button class="scm-discard-btn" title="${change.staged ? "ステージ済み・未ステージの変更をすべて破棄" : "未ステージの変更を破棄"}">↶</button>
+        <div class="scm-file-actions">
+          <button class="scm-stage-btn" title="${change.staged ? "ステージ解除" : "ステージに追加"}" aria-label="${change.staged ? "ステージ解除" : "ステージに追加"}">${change.staged ? "−" : "+"}</button>
+          <button class="scm-discard-btn" title="${change.staged ? "ステージ済み・未ステージの変更をすべて破棄" : "未ステージの変更を破棄"}" aria-label="変更を破棄">↶</button>
         </div>
+        <span class="scm-status-tag ${tagClass}" title="${statusLabel}">${change.status}</span>
       `;
       const showFileDiff = () => void openGitDiff(change.path);
       row.addEventListener("click", (event) => {
@@ -4012,6 +4040,33 @@ async function renderScmView(container: HTMLElement) {
         } catch (error) {
           showToast(`一括ステージ解除に失敗しました: ${error}`, "error");
         }
+      });
+    document
+      .getElementById("btn-discard-all")
+      ?.addEventListener("click", async () => {
+        if (
+          !confirm(
+            "未ステージの変更と未追跡ファイルをすべて破棄します。元に戻せません。",
+          )
+        )
+          return;
+        try {
+          await invoke("git_discard_all_unstaged");
+          showToast("未ステージの変更をすべて破棄しました", "info");
+          updateSidebarView("scm");
+        } catch (error) {
+          showToast(`一括破棄に失敗しました: ${error}`, "error");
+        }
+      });
+    container
+      .querySelectorAll<HTMLButtonElement>(".scm-group-toggle")
+      .forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const group = toggle.closest<HTMLElement>(".scm-resource-group");
+          if (!group) return;
+          const collapsed = group.classList.toggle("is-collapsed");
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+        });
       });
 
     const btnCommit = document.getElementById("btn-commit");
