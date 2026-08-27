@@ -72,6 +72,6 @@ jobs:
             libssl-dev \
             wget
       - run: npm ci
-      - run: npm run tauri -- build --bundles none
+      - run: npm run tauri -- build --no-bundle
       - run: git diff --check
       - run: git diff --exit-code
