@@ -2417,6 +2417,12 @@ function clearGitDiffPreview(pane: 1 | 2) {
   if (editorContainer) editorContainer.style.display = "block";
 }
 
+function clearGitDiffPreviewsForPath(path: string) {
+  for (const [pane, diff] of diffEditors.entries()) {
+    if (diff.path === path) clearGitDiffPreview(pane);
+  }
+}
+
 async function openGitDiff(rawPath: string) {
   const pane = activeEditorPane;
   const path = normalizePath(rawPath);
@@ -2858,6 +2864,7 @@ async function closeTab(rawPath: string): Promise<boolean> {
 
   tab.model.dispose();
   openTabs.delete(path);
+  clearGitDiffPreviewsForPath(path);
 
   const diffPane = Array.from(diffEditors.entries()).find(
     ([, diff]) => diff.path === path,
