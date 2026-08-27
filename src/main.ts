@@ -3063,6 +3063,11 @@ function formatCurrentDocument() {
 const collapsedFolders: Set<string> = new Set();
 
 async function loadWorkspaceFiles() {
+  // サイドバーの内容はアクティブなビューだけが描画する。検索結果から
+  // ファイルを開いても、検索ビューが選択中なら結果一覧をエクスプローラーの
+  // ツリーで置き換えない。
+  if (currentActiveView !== "explorer") return;
+
   const contentEl = document.getElementById("sidebar-content");
   if (!contentEl) return;
 
