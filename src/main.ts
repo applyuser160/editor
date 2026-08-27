@@ -166,6 +166,7 @@ let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
 const diffEditors = new Map<
   1 | 2,
   {
+    path: string;
     editor: monaco.editor.IStandaloneDiffEditor;
     original: monaco.editor.ITextModel;
     modified: monaco.editor.ITextModel;
@@ -2443,7 +2444,7 @@ async function openGitDiff(rawPath: string) {
       scrollBeyondLastLine: false,
     });
     editor.setModel({ original, modified });
-    diffEditors.set(pane, { editor, original, modified });
+    diffEditors.set(pane, { path, editor, original, modified });
     activeFilePath = path;
     updateStatusBar(path);
     showStatusMessage(`差分を表示: ${diff.path}`);
@@ -2842,6 +2843,11 @@ async function closeTab(rawPath: string): Promise<boolean> {
 
   tab.model.dispose();
   openTabs.delete(path);
+
+  const diffPane = Array.from(diffEditors.entries()).find(
+    ([, diff]) => diff.path === path,
+  )?.[0];
+  if (diffPane) clearGitDiffPreview(diffPane);
 
   if (activeFilePath === path) {
     const remainingKeys = Array.from(openTabs.keys());
