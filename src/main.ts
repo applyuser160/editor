@@ -337,13 +337,15 @@ async function initLanguageServerIntegration() {
     });
   });
 
-    monaco.editor.registerCommand("oxide.previewWorkspaceEdit", (_accessor, edit: unknown, title: string) => {
-    void previewAndApplyWorkspaceEdit(edit, title);
-  });
+  monaco.editor.registerCommand(
+    "oxide.previewWorkspaceEdit",
+    (_accessor, edit: unknown, title: string) => {
+      void previewAndApplyWorkspaceEdit(edit, title);
+    },
+  );
 
   // 2. Register LSP Providers for all supported languages
   supportedLangs.forEach((lang) => {
-
     // Hover Provider
     monaco.languages.registerHoverProvider(lang, {
       provideHover: async (model, position) => {
@@ -633,17 +635,26 @@ async function initLanguageServerIntegration() {
           });
           if (Array.isArray(res)) {
             return {
-                            actions: res.map((a: any) => a.edit ? ({
-                title: a.title,
-                kind: a.kind,
-                isPreferred: Boolean(a.isPreferred),
-                command: { id: "oxide.previewWorkspaceEdit", title: a.title, arguments: [a.edit, a.title] },
-              }) : ({
-                title: a.title,
-                kind: a.kind,
-                isPreferred: Boolean(a.isPreferred),
-                disabled: "この Code Action は編集結果を返さないため、まだ適用できません",
-              })),
+              actions: res.map((a: any) =>
+                a.edit
+                  ? {
+                      title: a.title,
+                      kind: a.kind,
+                      isPreferred: Boolean(a.isPreferred),
+                      command: {
+                        id: "oxide.previewWorkspaceEdit",
+                        title: a.title,
+                        arguments: [a.edit, a.title],
+                      },
+                    }
+                  : {
+                      title: a.title,
+                      kind: a.kind,
+                      isPreferred: Boolean(a.isPreferred),
+                      disabled:
+                        "この Code Action は編集結果を返さないため、まだ適用できません",
+                    },
+              ),
 
               dispose: () => {},
             };
@@ -947,27 +958,49 @@ async function previewAndApplyWorkspaceEdit(edit: unknown, title: string) {
       showToast("適用する編集はありません", "info");
       return;
     }
-    if (!await confirmWorkspaceEdit(prepared)) return;
+    if (!(await confirmWorkspaceEdit(prepared))) return;
     await applyPreparedWorkspaceEdit(prepared, true);
-    showStatusMessage(`${prepared.operations.length} 件のワークスペース編集を適用しました`);
+    showStatusMessage(
+      `${prepared.operations.length} 件のワークスペース編集を適用しました`,
+    );
   } catch (error) {
-    showToast(`ワークスペース編集を適用できませんでした: ${String(error)}`, "error");
+    showToast(
+      `ワークスペース編集を適用できませんでした: ${String(error)}`,
+      "error",
+    );
   }
 }
 
-async function prepareWorkspaceEdit(edit: unknown, title: string): Promise<PreparedWorkspaceEdit> {
-  if (!edit || typeof edit !== "object") throw new Error("LSP が無効な WorkspaceEdit を返しました");
-  const payload = edit as { changes?: Record<string, any[]>; documentChanges?: any[] };
+async function prepareWorkspaceEdit(
+  edit: unknown,
+  title: string,
+): Promise<PreparedWorkspaceEdit> {
+  if (!edit || typeof edit !== "object")
+    throw new Error("LSP が無効な WorkspaceEdit を返しました");
+  const payload = edit as {
+    changes?: Record<string, any[]>;
+    documentChanges?: any[];
+  };
   const operations: WorkspaceEditOperationPlan[] = [];
   const inverse: WorkspaceEditOperationPlan[] = [];
   const changes = payload.changes || {};
   for (const [uri, textEdits] of Object.entries(changes)) {
-    await addTextEditsToWorkspacePlan(uriToPath(uri), textEdits, operations, inverse);
+    await addTextEditsToWorkspacePlan(
+      uriToPath(uri),
+      textEdits,
+      operations,
+      inverse,
+    );
   }
   for (const documentChange of payload.documentChanges || []) {
     if (documentChange.kind === "create") {
       const path = uriToPath(documentChange.uri);
-      operations.push({ kind: "create", path, content: "", overwrite: Boolean(documentChange.options?.overwrite) });
+      operations.push({
+        kind: "create",
+        path,
+        content: "",
+        overwrite: Boolean(documentChange.options?.overwrite),
+      });
       inverse.unshift({ kind: "delete", path, expectedContent: "" });
     } else if (documentChange.kind === "delete") {
       const path = uriToPath(documentChange.uri);
@@ -979,9 +1012,23 @@ async function prepareWorkspaceEdit(edit: unknown, title: string): Promise<Prepa
       const to = uriToPath(documentChange.newUri);
       const content = await readWorkspaceEditContent(from);
       operations.push({ kind: "rename", from, to, expectedContent: content });
-      inverse.unshift({ kind: "rename", from: to, to: from, expectedContent: content });
-    } else if (documentChange.textDocument?.uri && Array.isArray(documentChange.edits)) {
-      await addTextEditsToWorkspacePlan(uriToPath(documentChange.textDocument.uri), documentChange.edits, operations, inverse, documentChange.textDocument.version);
+      inverse.unshift({
+        kind: "rename",
+        from: to,
+        to: from,
+        expectedContent: content,
+      });
+    } else if (
+      documentChange.textDocument?.uri &&
+      Array.isArray(documentChange.edits)
+    ) {
+      await addTextEditsToWorkspacePlan(
+        uriToPath(documentChange.textDocument.uri),
+        documentChange.edits,
+        operations,
+        inverse,
+        documentChange.textDocument.version,
+      );
     } else {
       throw new Error("未対応の WorkspaceEdit 操作が含まれています");
     }
@@ -989,78 +1036,158 @@ async function prepareWorkspaceEdit(edit: unknown, title: string): Promise<Prepa
   return { title, operations, inverse };
 }
 
-async function addTextEditsToWorkspacePlan(path: string, edits: any[], operations: WorkspaceEditOperationPlan[], inverse: WorkspaceEditOperationPlan[], expectedVersion?: number) {
+async function addTextEditsToWorkspacePlan(
+  path: string,
+  edits: any[],
+  operations: WorkspaceEditOperationPlan[],
+  inverse: WorkspaceEditOperationPlan[],
+  expectedVersion?: number,
+) {
   const normalizedPath = normalizePath(path);
-  const openTab = Array.from(openTabs.values()).find((tab) => normalizePath(tab.path) === normalizedPath);
-  if (typeof expectedVersion === "number" && openTab && openTab.version !== expectedVersion) {
-    throw new Error(`'${openTab.name}' は編集プレビュー後に変更されました。もう一度リファクタリングを実行してください`);
+  const openTab = Array.from(openTabs.values()).find(
+    (tab) => normalizePath(tab.path) === normalizedPath,
+  );
+  if (
+    typeof expectedVersion === "number" &&
+    openTab &&
+    openTab.version !== expectedVersion
+  ) {
+    throw new Error(
+      `'${openTab.name}' は編集プレビュー後に変更されました。もう一度リファクタリングを実行してください`,
+    );
   }
-  const created = operations.find((operation): operation is Extract<WorkspaceEditOperationPlan, { kind: "create" }> => operation.kind === "create" && normalizePath(operation.path) === normalizedPath);
+  const created = operations.find(
+    (
+      operation,
+    ): operation is Extract<WorkspaceEditOperationPlan, { kind: "create" }> =>
+      operation.kind === "create" &&
+      normalizePath(operation.path) === normalizedPath,
+  );
   if (created) {
     created.content = applyLspTextEdits(created.content, edits);
-    const inverseDelete = inverse.find((operation): operation is Extract<WorkspaceEditOperationPlan, { kind: "delete" }> => operation.kind === "delete" && normalizePath(operation.path) === normalizedPath);
+    const inverseDelete = inverse.find(
+      (
+        operation,
+      ): operation is Extract<WorkspaceEditOperationPlan, { kind: "delete" }> =>
+        operation.kind === "delete" &&
+        normalizePath(operation.path) === normalizedPath,
+    );
     if (inverseDelete) inverseDelete.expectedContent = created.content;
     return;
   }
   const original = await readWorkspaceEditContent(path);
   const content = applyLspTextEdits(original, edits);
   operations.push({ kind: "write", path, expectedContent: original, content });
-  inverse.unshift({ kind: "write", path, expectedContent: content, content: original });
+  inverse.unshift({
+    kind: "write",
+    path,
+    expectedContent: content,
+    content: original,
+  });
 }
 
 async function readWorkspaceEditContent(path: string): Promise<string> {
   const normalizedPath = normalizePath(path);
-  if (workspaceRoot && !normalizedPath.startsWith(`${normalizePath(workspaceRoot)}/`) && normalizedPath !== normalizePath(workspaceRoot)) {
+  if (
+    workspaceRoot &&
+    !normalizedPath.startsWith(`${normalizePath(workspaceRoot)}/`) &&
+    normalizedPath !== normalizePath(workspaceRoot)
+  ) {
     throw new Error(`ワークスペース外のパスには編集を適用できません: ${path}`);
   }
-  const openTab = Array.from(openTabs.values()).find((tab) => normalizePath(tab.path) === normalizedPath);
-  if (openTab?.isDirty) throw new Error(`未保存のタブ '${openTab.name}' を先に保存してください`);
-  return openTab ? openTab.model.getValue() : await invoke<string>("read_file_content", { path });
+  const openTab = Array.from(openTabs.values()).find(
+    (tab) => normalizePath(tab.path) === normalizedPath,
+  );
+  if (openTab?.isDirty)
+    throw new Error(`未保存のタブ '${openTab.name}' を先に保存してください`);
+  return openTab
+    ? openTab.model.getValue()
+    : await invoke<string>("read_file_content", { path });
 }
 
 function applyLspTextEdits(content: string, edits: any[]): string {
   const offsets = (position: { line: number; character: number }) => {
     const lines = content.split("\n");
-    if (position.line < 0 || position.line >= lines.length || position.character < 0 || position.character > lines[position.line].replace(/\r$/, "").length) {
+    if (
+      position.line < 0 ||
+      position.line >= lines.length ||
+      position.character < 0 ||
+      position.character > lines[position.line].replace(/\r$/, "").length
+    ) {
       throw new Error("LSP 編集の範囲がファイル外です");
     }
-    return lines.slice(0, position.line).reduce((length, line) => length + line.length + 1, 0) + position.character;
+    return (
+      lines
+        .slice(0, position.line)
+        .reduce((length, line) => length + line.length + 1, 0) +
+      position.character
+    );
   };
-  const normalized = edits.map((edit) => ({ start: offsets(edit.range.start), end: offsets(edit.range.end), text: String(edit.newText || "") }))
+  const normalized = edits
+    .map((edit) => ({
+      start: offsets(edit.range.start),
+      end: offsets(edit.range.end),
+      text: String(edit.newText || ""),
+    }))
     .sort((left, right) => right.start - left.start);
   let result = content;
   let previousStart = content.length + 1;
   for (const edit of normalized) {
-    if (edit.end < edit.start || edit.end > previousStart) throw new Error("LSP 編集の範囲が重複しています");
+    if (edit.end < edit.start || edit.end > previousStart)
+      throw new Error("LSP 編集の範囲が重複しています");
     result = `${result.slice(0, edit.start)}${edit.text}${result.slice(edit.end)}`;
     previousStart = edit.start;
   }
   return result;
 }
 
-function confirmWorkspaceEdit(prepared: PreparedWorkspaceEdit): Promise<boolean> {
+function confirmWorkspaceEdit(
+  prepared: PreparedWorkspaceEdit,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "workspace-edit-preview-overlay";
-    const summary = prepared.operations.map((operation) => {
-      const path = operation.kind === "rename" ? `${operation.from} → ${operation.to}` : operation.path;
-      return `<li><strong>${escapeHtml(operation.kind)}</strong> ${escapeHtml(path)}</li>`;
-    }).join("");
+    const summary = prepared.operations
+      .map((operation) => {
+        const path =
+          operation.kind === "rename"
+            ? `${operation.from} → ${operation.to}`
+            : operation.path;
+        return `<li><strong>${escapeHtml(operation.kind)}</strong> ${escapeHtml(path)}</li>`;
+      })
+      .join("");
     overlay.innerHTML = `<section class="workspace-edit-preview" role="dialog" aria-modal="true" aria-labelledby="workspace-edit-preview-title"><h2 id="workspace-edit-preview-title">${escapeHtml(prepared.title)}</h2><p>以下 ${prepared.operations.length} 件の変更を適用します。未保存のタブ、読み取り専用ファイル、競合は適用前に検証され、失敗時はロールバックします。</p><ul>${summary}</ul><div class="workspace-edit-preview-actions"><button type="button" data-action="cancel">キャンセル</button><button type="button" class="btn-primary" data-action="apply">適用</button></div></section>`;
     document.body.appendChild(overlay);
-    const finish = (approved: boolean) => { overlay.remove(); resolve(approved); };
-    overlay.querySelector<HTMLButtonElement>("[data-action='cancel']")?.addEventListener("click", () => finish(false));
-    overlay.querySelector<HTMLButtonElement>("[data-action='apply']")?.addEventListener("click", () => finish(true));
+    const finish = (approved: boolean) => {
+      overlay.remove();
+      resolve(approved);
+    };
+    overlay
+      .querySelector<HTMLButtonElement>("[data-action='cancel']")
+      ?.addEventListener("click", () => finish(false));
+    overlay
+      .querySelector<HTMLButtonElement>("[data-action='apply']")
+      ?.addEventListener("click", () => finish(true));
   });
 }
 
-async function applyPreparedWorkspaceEdit(prepared: PreparedWorkspaceEdit, recordHistory: boolean) {
-  const result = await invoke<{ changedPaths: string[] }>("apply_workspace_edit", { plan: { operations: prepared.operations } });
+async function applyPreparedWorkspaceEdit(
+  prepared: PreparedWorkspaceEdit,
+  recordHistory: boolean,
+) {
+  const result = await invoke<{ changedPaths: string[] }>(
+    "apply_workspace_edit",
+    { plan: { operations: prepared.operations } },
+  );
   for (const changedPath of result.changedPaths) {
-    const tab = Array.from(openTabs.values()).find((item) => normalizePath(item.path) === normalizePath(changedPath));
+    const tab = Array.from(openTabs.values()).find(
+      (item) => normalizePath(item.path) === normalizePath(changedPath),
+    );
     if (!tab) continue;
     try {
-      tab.model.setValue(await invoke<string>("read_file_content", { path: changedPath }));
+      tab.model.setValue(
+        await invoke<string>("read_file_content", { path: changedPath }),
+      );
       tab.isDirty = false;
     } catch {
       // Deleted and renamed files are reflected by refreshing the explorer; stale tabs remain readable.
@@ -1081,11 +1208,21 @@ async function undoWorkspaceEdit() {
     return;
   }
   try {
-    await applyPreparedWorkspaceEdit({ title: `${prepared.title} を元に戻す`, operations: prepared.inverse, inverse: prepared.operations }, false);
+    await applyPreparedWorkspaceEdit(
+      {
+        title: `${prepared.title} を元に戻す`,
+        operations: prepared.inverse,
+        inverse: prepared.operations,
+      },
+      false,
+    );
     workspaceEditRedoStack.push(prepared);
   } catch (error) {
     workspaceEditUndoStack.push(prepared);
-    showToast(`ワークスペース編集を元に戻せませんでした: ${String(error)}`, "error");
+    showToast(
+      `ワークスペース編集を元に戻せませんでした: ${String(error)}`,
+      "error",
+    );
   }
 }
 
@@ -1100,7 +1237,10 @@ async function redoWorkspaceEdit() {
     workspaceEditUndoStack.push(prepared);
   } catch (error) {
     workspaceEditRedoStack.push(prepared);
-    showToast(`ワークスペース編集をやり直せませんでした: ${String(error)}`, "error");
+    showToast(
+      `ワークスペース編集をやり直せませんでした: ${String(error)}`,
+      "error",
+    );
   }
 }
 
