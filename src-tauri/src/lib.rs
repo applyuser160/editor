@@ -4,6 +4,7 @@ pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
 pub mod task_runner;
+pub mod test_runner;
 pub mod workspace;
 
 use extension_host::ExtensionHostState;
@@ -50,6 +51,8 @@ pub fn run() {
             commands::resize_pty,
             commands::list_workspace_tasks,
             commands::run_workspace_task,
+            commands::list_workspace_test_suites,
+            commands::run_workspace_test_suite,
             commands::list_workspace_files,
             commands::read_file_content,
             commands::write_file_content,

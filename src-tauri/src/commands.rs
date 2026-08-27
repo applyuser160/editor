@@ -2,6 +2,7 @@ use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
 use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
+use crate::test_runner::{discover_test_suites, run_test_suite, TestSuite};
 use crate::workspace::{WorkspaceInfo, WorkspaceState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -375,6 +376,21 @@ pub async fn run_workspace_task(
         .find(|task| task.label == label)
         .ok_or_else(|| format!("Task '{}' was not found", label))?;
     run_task(task, &workspace_root)
+}
+
+#[tauri::command]
+pub async fn list_workspace_test_suites(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<TestSuite>, String> {
+    Ok(discover_test_suites(&state.root()))
+}
+
+#[tauri::command]
+pub async fn run_workspace_test_suite(
+    state: State<'_, WorkspaceState>,
+    id: String,
+) -> Result<TaskExecutionResult, String> {
+    run_test_suite(&state.root(), &id)
 }
 
 #[tauri::command]

@@ -10,7 +10,8 @@ pub struct LspSession {
     pub child: Arc<Mutex<Child>>,
     pub stdin: Arc<Mutex<ChildStdin>>,
     pub next_request_id: AtomicU64,
-    pub pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
+    pub pending_requests:
+        Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
 }
 
 #[derive(Default, Clone)]
@@ -25,7 +26,12 @@ impl LspState {
         }
     }
 
-    pub fn start_server(&self, app_handle: AppHandle, lang: &str, workspace_root: &str) -> Result<String, String> {
+    pub fn start_server(
+        &self,
+        app_handle: AppHandle,
+        lang: &str,
+        workspace_root: &str,
+    ) -> Result<String, String> {
         let mut sessions = self.sessions.lock().unwrap();
         if sessions.contains_key(lang) {
             return Ok(format!("LSP server for '{}' is already running.", lang));
@@ -40,7 +46,11 @@ impl LspState {
 
         let mut child = match lang {
             "python" => {
-                let pyright_local = working_dir.join("node_modules").join("pyright").join("dist").join("pyright-langserver.js");
+                let pyright_local = working_dir
+                    .join("node_modules")
+                    .join("pyright")
+                    .join("dist")
+                    .join("pyright-langserver.js");
                 if pyright_local.exists() {
                     Command::new("node")
                         .arg(&pyright_local)
@@ -52,7 +62,14 @@ impl LspState {
                         .spawn()
                 } else if cfg!(target_os = "windows") {
                     Command::new("cmd")
-                        .args(["/C", "npx", "-p", "pyright", "pyright-langserver", "--stdio"])
+                        .args([
+                            "/C",
+                            "npx",
+                            "-p",
+                            "pyright",
+                            "pyright-langserver",
+                            "--stdio",
+                        ])
                         .current_dir(&working_dir)
                         .stdin(Stdio::piped())
                         .stdout(Stdio::piped())
@@ -69,7 +86,11 @@ impl LspState {
                 }
             }
             "typescript" | "javascript" => {
-                let ts_local = working_dir.join("node_modules").join("typescript-language-server").join("lib").join("cli.mjs");
+                let ts_local = working_dir
+                    .join("node_modules")
+                    .join("typescript-language-server")
+                    .join("lib")
+                    .join("cli.mjs");
                 if ts_local.exists() {
                     Command::new("node")
                         .arg(&ts_local)
@@ -97,32 +118,31 @@ impl LspState {
                         .spawn()
                 }
             }
-            "rust" => {
-                Command::new("rust-analyzer")
-                    .current_dir(&working_dir)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn()
-            }
-            "go" => {
-                Command::new("gopls")
-                    .current_dir(&working_dir)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn()
-            }
+            "rust" => Command::new("rust-analyzer")
+                .current_dir(&working_dir)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn(),
+            "go" => Command::new("gopls")
+                .current_dir(&working_dir)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn(),
             _ => return Err(format!("Unsupported LSP language: {}", lang)),
         }
         .map_err(|e| format!("Could not spawn language server for '{}': {}", lang, e))?;
 
-        let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or("Failed to open stdin for LSP")?));
+        let stdin = Arc::new(Mutex::new(
+            child.stdin.take().ok_or("Failed to open stdin for LSP")?,
+        ));
         let stdout = child.stdout.take().ok_or("Failed to open stdout for LSP")?;
         let child = Arc::new(Mutex::new(child));
 
-        let pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending_requests: Arc<
+            Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>,
+        > = Arc::new(Mutex::new(HashMap::new()));
 
         let pending_clone = pending_requests.clone();
         let app_clone = app_handle.clone();
@@ -169,7 +189,10 @@ impl LspState {
             pending_requests,
         };
 
-        let root_uri = format!("file:///{}", working_dir.to_string_lossy().replace('\\', "/"));
+        let root_uri = format!(
+            "file:///{}",
+            working_dir.to_string_lossy().replace('\\', "/")
+        );
         let init_params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
@@ -192,22 +215,31 @@ impl LspState {
         });
 
         // 1. Send initialize request (id: 1)
-        send_message_raw(&stdin, &serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": init_params
-        }));
+        send_message_raw(
+            &stdin,
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": init_params
+            }),
+        );
 
         // 2. Send initialized notification
-        send_message_raw(&stdin, &serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "initialized",
-            "params": {}
-        }));
+        send_message_raw(
+            &stdin,
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {}
+            }),
+        );
 
         sessions.insert(lang.to_string(), session);
-        Ok(format!("LSP server for '{}' initialized successfully.", lang))
+        Ok(format!(
+            "LSP server for '{}' initialized successfully.",
+            lang
+        ))
     }
 
     pub fn stop_all(&self) -> usize {
@@ -227,18 +259,26 @@ impl LspState {
     pub fn send_notification(&self, lang: &str, method: &str, params: Value) -> Result<(), String> {
         let sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get(lang) {
-            send_message_raw(&session.stdin, &serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": method,
-                "params": params
-            }));
+            send_message_raw(
+                &session.stdin,
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params
+                }),
+            );
             Ok(())
         } else {
             Err(format!("LSP session for '{}' not running", lang))
         }
     }
 
-    pub async fn send_request(&self, lang: &str, method: &str, params: Value) -> Result<Value, String> {
+    pub async fn send_request(
+        &self,
+        lang: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
         for attempt in 1..=5 {
             let rx = {
                 let sessions = self.sessions.lock().unwrap();
@@ -311,7 +351,8 @@ fn handle_incoming_lsp_message(
         if let Some(id) = id_val.as_u64() {
             if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
                 let res_val = if method == "workspace/configuration" {
-                    let count = msg.get("params")
+                    let count = msg
+                        .get("params")
                         .and_then(|p| p.get("items"))
                         .and_then(|it| it.as_array())
                         .map(|a| a.len())
@@ -320,17 +361,23 @@ fn handle_incoming_lsp_message(
                 } else {
                     Value::Null
                 };
-                send_message_raw(stdin, &serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": res_val
-                }));
+                send_message_raw(
+                    stdin,
+                    &serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": res_val
+                    }),
+                );
                 return;
             }
 
             if let Some(tx) = pending.lock().unwrap().remove(&id) {
                 if let Some(err) = msg.get("error") {
-                    let err_msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("LSP error");
+                    let err_msg = err
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("LSP error");
                     let _ = tx.send(Err(err_msg.to_string()));
                 } else {
                     let result = msg.get("result").cloned().unwrap_or(Value::Null);
@@ -344,10 +391,13 @@ fn handle_incoming_lsp_message(
     if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
         if method == "textDocument/publishDiagnostics" {
             if let Some(params) = msg.get("params") {
-                let _ = app.emit("lsp-diagnostics", serde_json::json!({
-                    "lang": lang,
-                    "params": params
-                }));
+                let _ = app.emit(
+                    "lsp-diagnostics",
+                    serde_json::json!({
+                        "lang": lang,
+                        "params": params
+                    }),
+                );
             }
         }
     }
