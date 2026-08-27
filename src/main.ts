@@ -88,6 +88,18 @@ interface GitStatusResult {
   changed_files: string[];
 }
 
+interface GitFileComparison {
+  path: string;
+  original: string;
+  modified: string;
+}
+
+interface GitMergeVersions {
+  base: string;
+  ours: string;
+  theirs: string;
+}
+
 interface ExtensionManifest {
   id: string;
   name: string;
@@ -664,6 +676,52 @@ async function initLanguageServerIntegration() {
       },
     });
 
+    monaco.languages.registerInlayHintsProvider(lang, {
+      provideInlayHints: async (model, range) => {
+        const uri = pathToUri(activeFilePath || model.uri.path);
+        try {
+          const hints: any = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/inlayHint",
+            params: {
+              textDocument: { uri },
+              range: {
+                start: {
+                  line: range.startLineNumber - 1,
+                  character: range.startColumn - 1,
+                },
+                end: {
+                  line: range.endLineNumber - 1,
+                  character: range.endColumn - 1,
+                },
+              },
+            },
+          });
+          if (!Array.isArray(hints)) return { hints: [], dispose: () => {} };
+          return {
+            hints: hints.map((hint) => ({
+              position: new monaco.Position(
+                hint.position.line + 1,
+                hint.position.character + 1,
+              ),
+              label: Array.isArray(hint.label)
+                ? hint.label
+                    .map((part: any) => part.value || String(part))
+                    .join("")
+                : String(hint.label),
+              kind: hint.kind,
+              tooltip: hint.tooltip?.value || hint.tooltip,
+              paddingLeft: Boolean(hint.paddingLeft),
+              paddingRight: Boolean(hint.paddingRight),
+            })),
+            dispose: () => {},
+          };
+        } catch {
+          return { hints: [], dispose: () => {} };
+        }
+      },
+    });
+
     // Rename Provider (F2)
     monaco.languages.registerRenameProvider(lang, {
       provideRenameEdits: async (model, position, newName) => {
@@ -855,6 +913,9 @@ fn main() {
     smoothScrolling: true,
     minimap: { enabled: true, scale: 1, showSlider: "mouseover" },
     glyphMargin: true,
+    folding: true,
+    stickyScroll: { enabled: true },
+    inlayHints: { enabled: "on" },
 
     automaticLayout: true,
     tabSize: 4,
@@ -1741,6 +1802,7 @@ function setupVSCodeMenus() {
             .querySelector<HTMLButtonElement>('[data-view="explorer"]')
             ?.click(),
       },
+      { label: "アウトライン", action: () => openOutlineView() },
       {
         label: "検索",
         shortcut: "Ctrl+Shift+F",
@@ -4360,7 +4422,197 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+async function openOutlineView() {
+  if (!activeFilePath || !editor1) {
+    showToast("アウトラインを表示するファイルを開いてください", "info");
+    return;
+  }
+  const container = document.getElementById("sidebar-content");
+  const title = document.getElementById("sidebar-title");
+  if (!container || !title) return;
+  currentActiveView = "outline";
+  title.textContent = "アウトライン (OUTLINE)";
+  container.innerHTML =
+    '<div class="debug-empty">シンボルを読み込んでいます…</div>';
+  try {
+    const symbols: any[] = await invoke("lsp_send_request", {
+      lang: getLanguageFromPath(activeFilePath),
+      method: "textDocument/documentSymbol",
+      params: { textDocument: { uri: pathToUri(activeFilePath) } },
+    });
+    const flattened: any[] = [];
+    const visit = (items: any[], depth = 0) =>
+      items.forEach((symbol) => {
+        flattened.push({ ...symbol, depth });
+        if (Array.isArray(symbol.children)) visit(symbol.children, depth + 1);
+      });
+    if (Array.isArray(symbols)) visit(symbols);
+    container.innerHTML = flattened.length
+      ? flattened
+          .map(
+            (symbol) =>
+              `<button class="outline-symbol" type="button" data-line="${symbol.selectionRange?.start?.line ?? symbol.range?.start?.line ?? 0}" data-column="${symbol.selectionRange?.start?.character ?? symbol.range?.start?.character ?? 0}" style="padding-left: ${8 + symbol.depth * 14}px">${escapeHtml(symbol.name)}<small>${escapeHtml(symbol.detail || "")}</small></button>`,
+          )
+          .join("")
+      : '<div class="debug-empty">シンボルが見つかりませんでした。</div>';
+    container
+      .querySelectorAll<HTMLButtonElement>(".outline-symbol")
+      .forEach((button) =>
+        button.addEventListener("click", () => {
+          const editor = activeEditorPane === 1 ? editor1 : editor2;
+          const line = Number(button.dataset.line) + 1;
+          const column = Number(button.dataset.column) + 1;
+          editor?.revealPositionInCenter({ lineNumber: line, column });
+          editor?.setPosition({ lineNumber: line, column });
+          editor?.focus();
+        }),
+      );
+  } catch (error) {
+    container.innerHTML = `<div class="debug-error">アウトラインを取得できませんでした: ${escapeHtml(String(error))}</div>`;
+  }
+}
+
+async function openGitFileComparison(path: string) {
+  try {
+    const comparison = await invoke<GitFileComparison>(
+      "git_get_file_comparison",
+      { path },
+    );
+    const overlay = document.createElement("div");
+    overlay.className = "editor-comparison-overlay";
+    overlay.innerHTML = `<section class="editor-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-comparison-title"><header><h2 id="editor-comparison-title">変更の比較: ${escapeHtml(path)}</h2><div><button type="button" data-diff-layout="inline">インライン</button><button type="button" data-diff-layout="side">左右比較</button><button type="button" data-diff-close aria-label="閉じる">×</button></div></header><div class="editor-comparison-container"></div></section>`;
+    document.body.appendChild(overlay);
+    const host = overlay.querySelector<HTMLElement>(
+      ".editor-comparison-container",
+    );
+    if (!host) throw new Error("差分表示を初期化できませんでした");
+    const language = getLanguageFromPath(path);
+    const original = monaco.editor.createModel(comparison.original, language);
+    const modified = monaco.editor.createModel(comparison.modified, language);
+    const diffEditor = monaco.editor.createDiffEditor(host, {
+      theme: "vscode-dark-plus",
+      readOnly: true,
+      automaticLayout: true,
+      renderSideBySide: true,
+      minimap: { enabled: false },
+      stickyScroll: { enabled: true },
+    });
+    diffEditor.setModel({ original, modified });
+    const dispose = () => {
+      diffEditor.dispose();
+      original.dispose();
+      modified.dispose();
+      overlay.remove();
+    };
+    overlay
+      .querySelector<HTMLButtonElement>("[data-diff-close]")
+      ?.addEventListener("click", dispose);
+    overlay
+      .querySelector<HTMLButtonElement>("[data-diff-layout='inline']")
+      ?.addEventListener("click", () =>
+        diffEditor.updateOptions({ renderSideBySide: false }),
+      );
+    overlay
+      .querySelector<HTMLButtonElement>("[data-diff-layout='side']")
+      ?.addEventListener("click", () =>
+        diffEditor.updateOptions({ renderSideBySide: true }),
+      );
+  } catch (error) {
+    showToast(`差分を表示できませんでした: ${String(error)}`, "error");
+  }
+}
+
+async function openThreeWayMergeAssistant(path: string) {
+  try {
+    const versions = await invoke<GitMergeVersions>("git_get_merge_versions", {
+      path,
+    });
+    const overlay = document.createElement("div");
+    overlay.className = "editor-comparison-overlay";
+    overlay.innerHTML = `<section class="merge-assistant-dialog" role="dialog" aria-modal="true" aria-labelledby="merge-assistant-title"><header><h2 id="merge-assistant-title">3-way マージ: ${escapeHtml(path)}</h2><button type="button" data-merge-close aria-label="閉じる">×</button></header><p>Base・Ours・Theirs を比較し、解決結果を選択または編集してください。競合マーカー（&lt;&lt;&lt;&lt;&lt;&lt;&lt; / ======= / &gt;&gt;&gt;&gt;&gt;&gt;&gt;）が残る場合は保存前に警告します。</p><div class="merge-version-grid"><div><h3>Base</h3><div data-merge-base></div></div><div><h3>Ours</h3><div data-merge-ours></div></div><div><h3>Theirs</h3><div data-merge-theirs></div></div></div><div class="merge-result-header"><h3>Result</h3><span><button type="button" data-merge-use="ours">Ours を使用</button><button type="button" data-merge-use="theirs">Theirs を使用</button><button type="button" data-merge-save class="btn-primary">解決結果を保存</button></span></div><div class="merge-result-editor"></div></section>`;
+    document.body.appendChild(overlay);
+    const language = getLanguageFromPath(path);
+    const models = [
+      monaco.editor.createModel(versions.base, language),
+      monaco.editor.createModel(versions.ours, language),
+      monaco.editor.createModel(versions.theirs, language),
+      monaco.editor.createModel(versions.ours, language),
+    ];
+    const editorOptions = {
+      theme: "vscode-dark-plus",
+      automaticLayout: true,
+      minimap: { enabled: false },
+      stickyScroll: { enabled: true },
+    };
+    const editors = [
+      monaco.editor.create(
+        overlay.querySelector<HTMLElement>("[data-merge-base]")!,
+        { ...editorOptions, model: models[0], readOnly: true },
+      ),
+      monaco.editor.create(
+        overlay.querySelector<HTMLElement>("[data-merge-ours]")!,
+        { ...editorOptions, model: models[1], readOnly: true },
+      ),
+      monaco.editor.create(
+        overlay.querySelector<HTMLElement>("[data-merge-theirs]")!,
+        { ...editorOptions, model: models[2], readOnly: true },
+      ),
+      monaco.editor.create(
+        overlay.querySelector<HTMLElement>(".merge-result-editor")!,
+        { ...editorOptions, model: models[3] },
+      ),
+    ];
+    const dispose = () => {
+      editors.forEach((editor) => editor.dispose());
+      models.forEach((model) => model.dispose());
+      overlay.remove();
+    };
+    overlay
+      .querySelector<HTMLButtonElement>("[data-merge-close]")
+      ?.addEventListener("click", dispose);
+    overlay
+      .querySelectorAll<HTMLButtonElement>("[data-merge-use]")
+      .forEach((button) => {
+        button.addEventListener("click", () =>
+          models[3].setValue(
+            button.dataset.mergeUse === "theirs"
+              ? versions.theirs
+              : versions.ours,
+          ),
+        );
+      });
+    overlay
+      .querySelector<HTMLButtonElement>("[data-merge-save]")
+      ?.addEventListener("click", async () => {
+        const result = models[3].getValue();
+        if (
+          /^(<<<<<<<|=======|>>>>>>>)/m.test(result) &&
+          !confirm("競合マーカーが残っています。保存しますか？")
+        )
+          return;
+        try {
+          await invoke("write_file_content", { path, content: result });
+          await openFile(path, path.split("/").pop() || path);
+          await loadWorkspaceFiles();
+          showToast(
+            "マージ解決結果を保存しました。内容を確認してステージしてください。",
+            "info",
+          );
+          dispose();
+        } catch (error) {
+          showToast(
+            `マージ結果を保存できませんでした: ${String(error)}`,
+            "error",
+          );
+        }
+      });
+  } catch (error) {
+    showToast(`3-way マージを表示できませんでした: ${String(error)}`, "error");
+  }
+}
+
 // 15. SCM (Git) Integration (Push/Pull/Stage/Unstage)
+
 async function renderScmView(container: HTMLElement) {
   try {
     const status = await invoke<GitStatusResult>("git_get_status");
@@ -4456,7 +4708,7 @@ async function renderScmView(container: HTMLElement) {
             <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}">${tagText}</span>
             <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden; cursor: pointer;">${filePath}</span>
           </div>
-          <button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button>
+          <div class="scm-row-actions"><button class="scm-diff-btn" title="変更を比較">≍</button>${statusCode.includes("U") ? `<button class="scm-merge-btn" title="3-way マージ">⊞</button>` : ""}<button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button></div>
         `;
 
         row
@@ -4464,6 +4716,15 @@ async function renderScmView(container: HTMLElement) {
           ?.addEventListener("click", () => {
             openFile(filePath, filePath.split("/").pop() || filePath);
           });
+
+        row.querySelector(".scm-diff-btn")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void openGitFileComparison(filePath);
+        });
+        row.querySelector(".scm-merge-btn")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void openThreeWayMergeAssistant(filePath);
+        });
 
         row
           .querySelector(".scm-stage-btn")

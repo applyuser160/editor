@@ -76,6 +76,8 @@ pub fn run() {
             commands::git_pull,
             commands::git_stage_file,
             commands::git_unstage_file,
+            commands::git_get_file_comparison,
+            commands::git_get_merge_versions,
             commands::execute_terminal_command,
             commands::get_workspace_path,
             commands::get_workspace_folders,

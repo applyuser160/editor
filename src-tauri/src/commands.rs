@@ -47,6 +47,22 @@ pub struct GitStatusResult {
     pub changed_files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileComparison {
+    pub path: String,
+    pub original: String,
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitMergeVersions {
+    pub base: String,
+    pub ours: String,
+    pub theirs: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenVsxExtension {
     pub namespace: String,
@@ -896,6 +912,74 @@ pub async fn git_pull(state: State<'_, WorkspaceState>) -> Result<String, String
     } else {
         Err(format!("{}\n{}", stdout, stderr))
     }
+}
+
+#[tauri::command]
+pub async fn git_get_file_comparison(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<GitFileComparison, String> {
+    let workspace_root = state.root();
+    let absolute = state.resolve_path(&path)?;
+    let relative = relative_git_path(&workspace_root, &absolute)?;
+    let modified = if absolute.exists() {
+        std::fs::read_to_string(&absolute)
+            .map_err(|_| format!("Cannot compare binary or unreadable file: {}", path))?
+    } else {
+        String::new()
+    };
+    let original_result = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["show", &format!("HEAD:{relative}")])
+        .output()
+        .map_err(|error| format!("git show failed: {error}"))?;
+    let original = if original_result.status.success() {
+        String::from_utf8(original_result.stdout)
+            .map_err(|_| format!("Cannot compare binary file: {}", path))?
+    } else {
+        String::new()
+    };
+    Ok(GitFileComparison {
+        path,
+        original,
+        modified,
+    })
+}
+
+#[tauri::command]
+pub async fn git_get_merge_versions(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<GitMergeVersions, String> {
+    let workspace_root = state.root();
+    let absolute = state.resolve_path(&path)?;
+    let relative = relative_git_path(&workspace_root, &absolute)?;
+    let read_stage = |stage: &str| -> Result<String, String> {
+        let output = Command::new("git")
+            .current_dir(&workspace_root)
+            .args(["show", &format!(":{stage}:{relative}")])
+            .output()
+            .map_err(|error| format!("git show failed: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "No {stage}-way merge content is available for '{}'",
+                path
+            ));
+        }
+        String::from_utf8(output.stdout).map_err(|_| format!("Cannot merge binary file: {}", path))
+    };
+    Ok(GitMergeVersions {
+        base: read_stage("1")?,
+        ours: read_stage("2")?,
+        theirs: read_stage("3")?,
+    })
+}
+
+fn relative_git_path(workspace_root: &Path, absolute: &Path) -> Result<String, String> {
+    let relative = absolute
+        .strip_prefix(workspace_root)
+        .map_err(|_| "Paths outside the workspace are not allowed".to_string())?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
 #[tauri::command]

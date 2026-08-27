@@ -1625,3 +1625,140 @@ body {
   color: var(--text-bright);
   cursor: pointer;
 }
+
+/* Diff and 3-way merge */
+.editor-comparison-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.editor-comparison-dialog,
+.merge-assistant-dialog {
+  width: min(1200px, 100%);
+  height: min(760px, 92vh);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+}
+
+.editor-comparison-dialog header,
+.merge-assistant-dialog header,
+.merge-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-comparison-dialog h2,
+.merge-assistant-dialog h2,
+.merge-result-header h3,
+.merge-version-grid h3 {
+  margin: 0;
+  color: var(--text-bright);
+  font-size: 13px;
+}
+
+.editor-comparison-dialog header button,
+.merge-assistant-dialog header button,
+.merge-result-header button,
+.scm-diff-btn,
+.scm-merge-btn {
+  padding: 3px 6px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #3c3c3c;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.editor-comparison-container {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #3c3c3c;
+}
+
+.merge-assistant-dialog > p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.merge-version-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.merge-version-grid > div,
+.merge-result-editor {
+  min-height: 0;
+  border: 1px solid #3c3c3c;
+}
+
+.merge-version-grid h3 {
+  padding: 5px 7px;
+  border-bottom: 1px solid #3c3c3c;
+  background: #252526;
+}
+
+.merge-version-grid [data-merge-base],
+.merge-version-grid [data-merge-ours],
+.merge-version-grid [data-merge-theirs] {
+  height: calc(100% - 29px);
+}
+
+.merge-result-editor {
+  min-height: 180px;
+}
+
+.scm-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.outline-symbol {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 5px;
+  padding-right: 7px;
+  padding-bottom: 5px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.outline-symbol:hover {
+  border-left-color: var(--accent-color);
+  background: var(--bg-hover);
+}
+
+.outline-symbol small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
