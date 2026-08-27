@@ -59,6 +59,11 @@ pub async fn lsp_start_server(
 }
 
 #[tauri::command]
+pub async fn lsp_stop_server(state: State<'_, LspState>, lang: String) -> Result<(), String> {
+    state.stop_server(&lang)
+}
+
+#[tauri::command]
 pub async fn lsp_send_notification(
     state: State<'_, LspState>,
     lang: String,
