@@ -37,6 +37,7 @@ pub fn run() {
             commands::search_openvsx_extensions,
             commands::install_openvsx_extension,
             commands::uninstall_extension,
+            commands::set_extension_enabled,
             commands::git_list_branches,
             commands::git_checkout_branch,
             commands::git_create_branch,
