@@ -31,6 +31,7 @@ import {
   type Keybinding,
   type SettingScope,
 } from "./settings";
+import { normalizeFilePath, pathForWorkspaceRead } from "./path-utils";
 
 interface FileEntry {
   name: string;
@@ -188,16 +189,13 @@ const activeLspServers = new Set<string>();
 
 // Path & URI Utilities
 function normalizePath(rawPath: string): string {
-  let p = rawPath.replace(/\\/g, "/");
-  // If relative path and workspaceRoot is known, prepend workspaceRoot
-  if (!p.match(/^[a-zA-Z]:\//) && !p.startsWith("/")) {
-    if (workspaceRoot) {
-      p = `${workspaceRoot.replace(/\\/g, "/")}/${p}`;
-    }
+  let path = normalizeFilePath(rawPath);
+  // If a relative path is supplied, keep Monaco tab keys absolute while the
+  // backend receives the original workspace-relative path for safe resolution.
+  if (!path.match(/^[a-zA-Z]:\//) && !path.startsWith("/") && workspaceRoot) {
+    path = `${normalizeFilePath(workspaceRoot)}/${path}`;
   }
-  // Remove duplicate slashes
-  p = p.replace(/\/+/g, "/");
-  return p;
+  return normalizeFilePath(path);
 }
 
 function pathToUri(filePath: string): string {
@@ -2189,7 +2187,8 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
   if (!editor1) return;
 
   const path = normalizePath(rawPath);
-  const fileName = name || path.split("/").pop() || path;
+  const readPath = pathForWorkspaceRead(rawPath, workspaceRoot);
+  const fileName = name?.split(/[/\\]/).pop() || path.split("/").pop() || path;
   const pane = targetPane ?? activeEditorPane;
 
   if (openTabs.has(path)) {
@@ -2210,7 +2209,9 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
   }
 
   try {
-    const content = await invoke<string>("read_file_content", { path });
+    const content = await invoke<string>("read_file_content", {
+      path: readPath,
+    });
     const language = getLanguageFromPath(path);
     const modelUri = monaco.Uri.parse(pathToUri(path));
 
