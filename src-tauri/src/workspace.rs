@@ -81,6 +81,54 @@ pub struct WorkspaceState {
     store: Arc<Mutex<WorkspaceStore>>,
 }
 
+fn requested_path(raw_path: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let normalized = raw_path.replace('/', "\\");
+        if let Some(path) = normalized.strip_prefix("\\\\?\\UNC\\") {
+            return PathBuf::from(format!("\\\\{}", path));
+        }
+        if let Some(path) = normalized.strip_prefix("\\\\?\\") {
+            return PathBuf::from(path);
+        }
+        PathBuf::from(normalized)
+    }
+
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(raw_path)
+    }
+}
+
+fn is_path_within_workspace(root: &Path, candidate: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        fn comparison_key(path: &Path) -> String {
+            let normalized = path.to_string_lossy().replace('/', "\\");
+            let normalized = if let Some(path) = normalized.strip_prefix("\\\\?\\UNC\\") {
+                format!("\\\\{}", path)
+            } else if let Some(path) = normalized.strip_prefix("\\\\?\\") {
+                path.to_owned()
+            } else {
+                normalized
+            };
+            normalized.trim_end_matches('\\').to_ascii_lowercase()
+        }
+
+        let root = comparison_key(root);
+        let candidate = comparison_key(candidate);
+        candidate == root
+            || candidate
+                .strip_prefix(&root)
+                .is_some_and(|remainder| remainder.starts_with('\\'))
+    }
+
+    #[cfg(not(windows))]
+    {
+        candidate.starts_with(root)
+    }
+}
+
 impl WorkspaceState {
     pub fn new() -> Self {
         let initial_root = std::env::current_dir()
@@ -274,7 +322,10 @@ impl WorkspaceState {
 
     pub fn resolve_path(&self, raw_path: &str) -> Result<PathBuf, String> {
         let root = self.root();
-        let requested = Path::new(raw_path);
+        let canonical_root = root
+            .canonicalize()
+            .map_err(|error| format!("Failed to resolve workspace path: {}", error))?;
+        let requested = requested_path(raw_path);
         if !requested.is_absolute()
             && requested
                 .components()
@@ -284,16 +335,16 @@ impl WorkspaceState {
         }
 
         let candidate = if requested.is_absolute() {
-            requested.to_path_buf()
+            requested
         } else {
-            root.join(requested)
+            canonical_root.join(requested)
         };
 
         let existing_ancestor = nearest_existing_ancestor(&candidate)?;
         let canonical_ancestor = existing_ancestor
             .canonicalize()
             .map_err(|error| format!("Failed to resolve path: {}", error))?;
-        if !canonical_ancestor.starts_with(&root) {
+        if !is_path_within_workspace(&canonical_root, &canonical_ancestor) {
             return Err("Paths outside the workspace are not allowed".to_string());
         }
 
@@ -477,6 +528,49 @@ mod tests {
         let state = WorkspaceState::new();
         let resolved = state.resolve_path("nested/new-file.txt").unwrap();
         assert_eq!(resolved, state.root().join("nested/new-file.txt"));
+    }
+
+    #[test]
+    fn resolve_path_allows_an_existing_absolute_path_within_the_workspace() {
+        let workspace = std::env::temp_dir().join(format!(
+            "oxide-workspace-path-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let file = workspace.join("search-result.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        let state = state_with_folders(vec![workspace.clone()], 0);
+
+        assert_eq!(
+            state.resolve_path(file.to_str().unwrap()).unwrap(),
+            file.canonicalize().unwrap()
+        );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_path_allows_an_extended_windows_path_within_the_workspace() {
+        let workspace = std::env::temp_dir().join(format!(
+            "oxide-workspace-path-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let file = workspace.join("search-result.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        let state = state_with_folders(vec![workspace.clone()], 0);
+        let extended_path = format!("\\\\?\\{}", file.display());
+
+        assert!(state.resolve_path(&extended_path).is_ok());
+
+        let _ = std::fs::remove_dir_all(workspace);
     }
 
     #[test]
