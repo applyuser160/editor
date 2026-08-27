@@ -833,7 +833,7 @@ fn main() {
     readOnly: false,
     cursorBlinking: "smooth",
     smoothScrolling: true,
-        minimap: { enabled: true, scale: 1, showSlider: "mouseover" },
+    minimap: { enabled: true, scale: 1, showSlider: "mouseover" },
     glyphMargin: true,
 
     automaticLayout: true,
@@ -866,13 +866,16 @@ fn main() {
     closeGlobalMenu();
     if (pane2FilePath) updateStatusBar(pane2FilePath);
   });
-    editor1.onMouseDown(() => closeGlobalMenu());
+  editor1.onMouseDown(() => closeGlobalMenu());
   editor2.onMouseDown(() => closeGlobalMenu());
-  editor1.onMouseDown((event) => handleBreakpointGutterClick(event, pane1FilePath));
-  editor2.onMouseDown((event) => handleBreakpointGutterClick(event, pane2FilePath));
+  editor1.onMouseDown((event) =>
+    handleBreakpointGutterClick(event, pane1FilePath),
+  );
+  editor2.onMouseDown((event) =>
+    handleBreakpointGutterClick(event, pane2FilePath),
+  );
 
   editor1.onDidChangeCursorPosition((e) => {
-
     if (activeEditorPane === 1) {
       const statusLineCol = document.getElementById("status-line-col");
       if (statusLineCol) {
@@ -2981,7 +2984,9 @@ async function updateSidebarView(view: string) {
 // 13. Debug Adapter Protocol Viewlet
 async function renderDebugView(container: HTMLElement) {
   try {
-    debugConfigurations = await invoke<DebugConfiguration[]>("debug_list_configurations");
+    debugConfigurations = await invoke<DebugConfiguration[]>(
+      "debug_list_configurations",
+    );
   } catch (error) {
     container.innerHTML = `<div class="debug-error">起動構成を読み込めませんでした: ${escapeHtml(String(error))}</div>`;
     return;
@@ -2989,24 +2994,52 @@ async function renderDebugView(container: HTMLElement) {
 
   const selectedConfiguration = debugConfigurations[0];
   const configurationOptions = debugConfigurations
-    .map((configuration) => `<option value="${escapeHtml(configuration.name)}">${escapeHtml(configuration.name)} (${escapeHtml(configuration.type)} / ${escapeHtml(configuration.request)})</option>`)
+    .map(
+      (configuration) =>
+        `<option value="${escapeHtml(configuration.name)}">${escapeHtml(configuration.name)} (${escapeHtml(configuration.type)} / ${escapeHtml(configuration.request)})</option>`,
+    )
     .join("");
-  const breakpointRows = Array.from(debugBreakpoints.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([source, lines]) => Array.from(lines).sort((a, b) => a - b).map((line) => `
+  const breakpointRows =
+    Array.from(debugBreakpoints.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([source, lines]) =>
+        Array.from(lines)
+          .sort((a, b) => a - b)
+          .map(
+            (line) => `
       <div class="debug-breakpoint-row">
         <span>${escapeHtml(source.split(/[\\/]/).pop() || source)}:${line}</span>
         <button type="button" data-debug-remove-breakpoint="${escapeHtml(source)}" data-line="${line}" aria-label="ブレークポイントを削除">×</button>
-      </div>`))
-    .join("") || `<div class="debug-empty">エディターの行番号余白をクリックしてブレークポイントを追加します。</div>`;
-  const stackRows = debugStackFrames.map((frame) => `
+      </div>`,
+          ),
+      )
+      .join("") ||
+    `<div class="debug-empty">エディターの行番号余白をクリックしてブレークポイントを追加します。</div>`;
+  const stackRows =
+    debugStackFrames
+      .map(
+        (frame) => `
     <button type="button" class="debug-stack-frame ${frame.id === debugActiveFrameId ? "active" : ""}" data-debug-frame="${frame.id}">
       <span>${escapeHtml(frame.name)}</span><small>${escapeHtml(frame.source?.name || frame.source?.path || "")}:${frame.line}</small>
-    </button>`).join("") || `<div class="debug-empty">停止するとコールスタックが表示されます。</div>`;
-  const variableRows = debugVariables.map((variable) => `
-    <div class="debug-variable-row"><code>${escapeHtml(variable.name)}</code><span>${escapeHtml(variable.value)}</span>${variable.type ? `<small>${escapeHtml(variable.type)}</small>` : ""}</div>`).join("") || `<div class="debug-empty">停止するとローカル変数が表示されます。</div>`;
-  const watchRows = debugWatchExpressions.map((expression) => `
-    <div class="debug-watch-row"><code>${escapeHtml(expression)}</code><button type="button" data-debug-remove-watch="${escapeHtml(expression)}" aria-label="Watch 式を削除">×</button></div>`).join("") || `<div class="debug-empty">Watch 式はまだありません。</div>`;
+    </button>`,
+      )
+      .join("") ||
+    `<div class="debug-empty">停止するとコールスタックが表示されます。</div>`;
+  const variableRows =
+    debugVariables
+      .map(
+        (variable) => `
+    <div class="debug-variable-row"><code>${escapeHtml(variable.name)}</code><span>${escapeHtml(variable.value)}</span>${variable.type ? `<small>${escapeHtml(variable.type)}</small>` : ""}</div>`,
+      )
+      .join("") ||
+    `<div class="debug-empty">停止するとローカル変数が表示されます。</div>`;
+  const watchRows =
+    debugWatchExpressions
+      .map(
+        (expression) => `
+    <div class="debug-watch-row"><code>${escapeHtml(expression)}</code><button type="button" data-debug-remove-watch="${escapeHtml(expression)}" aria-label="Watch 式を削除">×</button></div>`,
+      )
+      .join("") || `<div class="debug-empty">Watch 式はまだありません。</div>`;
 
   container.innerHTML = `
     <div class="debug-view">
@@ -3033,45 +3066,75 @@ async function renderDebugView(container: HTMLElement) {
       <section class="debug-section"><h3>デバッグ コンソール (REPL)</h3><div class="debug-repl"><input id="debug-repl-input" type="text" placeholder="停止中の式を評価" ${debugSessionActive ? "" : "disabled"}/><button id="btn-debug-evaluate" type="button" ${debugSessionActive ? "" : "disabled"}>評価</button></div><pre id="debug-repl-output" class="debug-repl-output"></pre></section>
     </div>`;
 
-  container.querySelector<HTMLButtonElement>("#btn-debug-start")?.addEventListener("click", () => {
-    const select = container.querySelector<HTMLSelectElement>("#debug-configuration-select");
-    if (select) void startDebugSession(select.value);
-  });
-  container.querySelector<HTMLButtonElement>("#btn-debug-stop")?.addEventListener("click", () => void stopDebugSession());
-  container.querySelectorAll<HTMLButtonElement>("[data-debug-command]").forEach((button) => {
-    button.addEventListener("click", () => void runDebugControl(button.dataset.debugCommand || ""));
-  });
-  container.querySelectorAll<HTMLButtonElement>("[data-debug-remove-breakpoint]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const source = button.dataset.debugRemoveBreakpoint;
-      const line = Number(button.dataset.line);
-      if (source && line) void toggleDebugBreakpoint(source, line);
+  container
+    .querySelector<HTMLButtonElement>("#btn-debug-start")
+    ?.addEventListener("click", () => {
+      const select = container.querySelector<HTMLSelectElement>(
+        "#debug-configuration-select",
+      );
+      if (select) void startDebugSession(select.value);
     });
-  });
-  container.querySelectorAll<HTMLButtonElement>("[data-debug-frame]").forEach((button) => {
-    button.addEventListener("click", () => void selectDebugFrame(Number(button.dataset.debugFrame)));
-  });
-  container.querySelectorAll<HTMLButtonElement>("[data-debug-remove-watch]").forEach((button) => {
-    button.addEventListener("click", () => {
-      debugWatchExpressions = debugWatchExpressions.filter((expression) => expression !== button.dataset.debugRemoveWatch);
+  container
+    .querySelector<HTMLButtonElement>("#btn-debug-stop")
+    ?.addEventListener("click", () => void stopDebugSession());
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-debug-command]")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => void runDebugControl(button.dataset.debugCommand || ""),
+      );
+    });
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-debug-remove-breakpoint]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const source = button.dataset.debugRemoveBreakpoint;
+        const line = Number(button.dataset.line);
+        if (source && line) void toggleDebugBreakpoint(source, line);
+      });
+    });
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-debug-frame]")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => void selectDebugFrame(Number(button.dataset.debugFrame)),
+      );
+    });
+  container
+    .querySelectorAll<HTMLButtonElement>("[data-debug-remove-watch]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        debugWatchExpressions = debugWatchExpressions.filter(
+          (expression) => expression !== button.dataset.debugRemoveWatch,
+        );
+        void refreshDebugView();
+      });
+    });
+  container
+    .querySelector<HTMLButtonElement>("#btn-add-debug-watch")
+    ?.addEventListener("click", () => {
+      const input =
+        container.querySelector<HTMLInputElement>("#debug-watch-input");
+      const expression = input?.value.trim();
+      if (!expression || debugWatchExpressions.includes(expression)) return;
+      debugWatchExpressions.push(expression);
       void refreshDebugView();
     });
-  });
-  container.querySelector<HTMLButtonElement>("#btn-add-debug-watch")?.addEventListener("click", () => {
-    const input = container.querySelector<HTMLInputElement>("#debug-watch-input");
-    const expression = input?.value.trim();
-    if (!expression || debugWatchExpressions.includes(expression)) return;
-    debugWatchExpressions.push(expression);
-    void refreshDebugView();
-  });
   const evaluate = () => {
-    const input = container.querySelector<HTMLInputElement>("#debug-repl-input");
+    const input =
+      container.querySelector<HTMLInputElement>("#debug-repl-input");
     if (input?.value.trim()) void evaluateDebugExpression(input.value.trim());
   };
-  container.querySelector<HTMLButtonElement>("#btn-debug-evaluate")?.addEventListener("click", evaluate);
-  container.querySelector<HTMLInputElement>("#debug-repl-input")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") evaluate();
-  });
+  container
+    .querySelector<HTMLButtonElement>("#btn-debug-evaluate")
+    ?.addEventListener("click", evaluate);
+  container
+    .querySelector<HTMLInputElement>("#debug-repl-input")
+    ?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") evaluate();
+    });
 }
 
 function debugBreakpointPayload() {
@@ -3081,10 +3144,17 @@ function debugBreakpointPayload() {
   }));
 }
 
-function handleBreakpointGutterClick(event: monaco.editor.IEditorMouseEvent, source: string | null) {
+function handleBreakpointGutterClick(
+  event: monaco.editor.IEditorMouseEvent,
+  source: string | null,
+) {
   if (!source || !event.target.position) return;
   const target = event.target.type;
-  if (target !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && target !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
+  if (
+    target !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+    target !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+  )
+    return;
   void toggleDebugBreakpoint(source, event.target.position.lineNumber);
 }
 
@@ -3098,33 +3168,60 @@ async function toggleDebugBreakpoint(source: string, line: number) {
 
   if (debugSessionActive) {
     try {
-      await invoke("debug_set_breakpoints", { source, lines: Array.from(lines).sort((left, right) => left - right) });
+      await invoke("debug_set_breakpoints", {
+        source,
+        lines: Array.from(lines).sort((left, right) => left - right),
+      });
     } catch (error) {
-      showToast(`ブレークポイントを更新できませんでした: ${String(error)}`, "error");
+      showToast(
+        `ブレークポイントを更新できませんでした: ${String(error)}`,
+        "error",
+      );
     }
   }
   void refreshDebugView();
 }
 
 function renderDebugBreakpointDecorations() {
-  const decorationsFor = (source: string | null): monaco.editor.IModelDeltaDecoration[] => {
+  const decorationsFor = (
+    source: string | null,
+  ): monaco.editor.IModelDeltaDecoration[] => {
     if (!source) return [];
     return Array.from(debugBreakpoints.get(source) || []).map((line) => ({
       range: new monaco.Range(line, 1, line, 1),
-      options: { glyphMarginClassName: "debug-breakpoint-glyph", glyphMarginHoverMessage: { value: "ブレークポイント" } },
+      options: {
+        glyphMarginClassName: "debug-breakpoint-glyph",
+        glyphMarginHoverMessage: { value: "ブレークポイント" },
+      },
     }));
   };
-  if (editor1) debugEditor1Decorations = editor1.deltaDecorations(debugEditor1Decorations, decorationsFor(pane1FilePath));
-  if (editor2) debugEditor2Decorations = editor2.deltaDecorations(debugEditor2Decorations, decorationsFor(pane2FilePath));
+  if (editor1)
+    debugEditor1Decorations = editor1.deltaDecorations(
+      debugEditor1Decorations,
+      decorationsFor(pane1FilePath),
+    );
+  if (editor2)
+    debugEditor2Decorations = editor2.deltaDecorations(
+      debugEditor2Decorations,
+      decorationsFor(pane2FilePath),
+    );
 }
 
 async function startDebugSession(configurationName: string) {
-  const configuration = debugConfigurations.find((item) => item.name === configurationName);
+  const configuration = debugConfigurations.find(
+    (item) => item.name === configurationName,
+  );
   if (!configuration) return;
   try {
-    const adapter = await invoke<{ available: boolean; message: string }>("debug_check_adapter", { adapterType: configuration.type });
+    const adapter = await invoke<{ available: boolean; message: string }>(
+      "debug_check_adapter",
+      { adapterType: configuration.type },
+    );
     if (!adapter.available) throw new Error(adapter.message);
-    await invoke("debug_start_session", { configurationName, breakpoints: debugBreakpointPayload() });
+    await invoke("debug_start_session", {
+      configurationName,
+      breakpoints: debugBreakpointPayload(),
+    });
     debugSessionActive = true;
     debugActiveThreadId = null;
     debugActiveFrameId = null;
@@ -3149,7 +3246,13 @@ async function stopDebugSession() {
 }
 
 async function runDebugControl(command: string) {
-  const supported = new Set(["continue", "next", "step_in", "step_out", "pause"]);
+  const supported = new Set([
+    "continue",
+    "next",
+    "step_in",
+    "step_out",
+    "pause",
+  ]);
   if (!supported.has(command) || !debugSessionActive) return;
   try {
     await invoke(`debug_${command}`, { threadId: debugActiveThreadId });
@@ -3167,7 +3270,9 @@ async function selectDebugFrame(frameId: number) {
     if (!scope || !scope.variablesReference) {
       debugVariables = [];
     } else {
-      const variables = await invoke<any>("debug_variables", { variablesReference: scope.variablesReference });
+      const variables = await invoke<any>("debug_variables", {
+        variablesReference: scope.variablesReference,
+      });
       debugVariables = variables.body?.variables || [];
     }
     await refreshDebugWatchExpressions();
@@ -3179,20 +3284,40 @@ async function selectDebugFrame(frameId: number) {
 
 async function refreshDebugWatchExpressions() {
   if (!debugSessionActive || debugWatchExpressions.length === 0) return;
-  const values = await Promise.all(debugWatchExpressions.map(async (expression) => {
-    try {
-      const response = await invoke<any>("debug_evaluate", { expression, frameId: debugActiveFrameId });
-      return { name: `Watch: ${expression}`, value: response.body?.result || "", type: response.body?.type, variablesReference: response.body?.variablesReference || 0 } as DebugVariable;
-    } catch (error) {
-      return { name: `Watch: ${expression}`, value: String(error), variablesReference: 0 } as DebugVariable;
-    }
-  }));
-  debugVariables = [...debugVariables.filter((item) => !item.name.startsWith("Watch: ")), ...values];
+  const values = await Promise.all(
+    debugWatchExpressions.map(async (expression) => {
+      try {
+        const response = await invoke<any>("debug_evaluate", {
+          expression,
+          frameId: debugActiveFrameId,
+        });
+        return {
+          name: `Watch: ${expression}`,
+          value: response.body?.result || "",
+          type: response.body?.type,
+          variablesReference: response.body?.variablesReference || 0,
+        } as DebugVariable;
+      } catch (error) {
+        return {
+          name: `Watch: ${expression}`,
+          value: String(error),
+          variablesReference: 0,
+        } as DebugVariable;
+      }
+    }),
+  );
+  debugVariables = [
+    ...debugVariables.filter((item) => !item.name.startsWith("Watch: ")),
+    ...values,
+  ];
 }
 
 async function evaluateDebugExpression(expression: string) {
   try {
-    const response = await invoke<any>("debug_evaluate", { expression, frameId: debugActiveFrameId });
+    const response = await invoke<any>("debug_evaluate", {
+      expression,
+      frameId: debugActiveFrameId,
+    });
     const result = response.body?.result || "";
     const output = document.getElementById("debug-repl-output");
     if (output) output.textContent = `${expression}\n${result}\n`;
@@ -3237,14 +3362,23 @@ function setupDebugAdapterListener() {
       case "stopped": {
         debugSessionActive = true;
         debugActiveThreadId = Number(body.threadId) || null;
-        appendDebugOutput(`停止: ${body.reason || "breakpoint"}${body.description ? ` — ${body.description}` : ""}\n`, "stopped");
+        appendDebugOutput(
+          `停止: ${body.reason || "breakpoint"}${body.description ? ` — ${body.description}` : ""}\n`,
+          "stopped",
+        );
         if (debugActiveThreadId) {
           try {
-            const response = await invoke<any>("debug_stack_trace", { threadId: debugActiveThreadId });
+            const response = await invoke<any>("debug_stack_trace", {
+              threadId: debugActiveThreadId,
+            });
             debugStackFrames = response.body?.stackFrames || [];
-            if (debugStackFrames[0]) await selectDebugFrame(debugStackFrames[0].id);
+            if (debugStackFrames[0])
+              await selectDebugFrame(debugStackFrames[0].id);
           } catch (error) {
-            appendDebugOutput(`スタック取得エラー: ${String(error)}\n`, "stderr");
+            appendDebugOutput(
+              `スタック取得エラー: ${String(error)}\n`,
+              "stderr",
+            );
           }
         }
         break;
@@ -3252,11 +3386,15 @@ function setupDebugAdapterListener() {
       case "terminated":
       case "exited":
       case "adapterClosed":
-        if (message.event === "adapterClosed" && body.message) appendDebugOutput(`${body.message}\n`, "stderr");
+        if (message.event === "adapterClosed" && body.message)
+          appendDebugOutput(`${body.message}\n`, "stderr");
         resetDebugSession();
         break;
       case "breakpoint":
-        appendDebugOutput(`ブレークポイント更新: ${body.reason || "changed"}\n`, "console");
+        appendDebugOutput(
+          `ブレークポイント更新: ${body.reason || "changed"}\n`,
+          "console",
+        );
         break;
     }
     await refreshDebugView();

@@ -57,7 +57,10 @@ impl DebugSessionState {
         }
         session.request("configurationDone", json!({}))?;
 
-        *self.session.lock().map_err(|_| "Debug session state is unavailable".to_string())? = Some(session);
+        *self
+            .session
+            .lock()
+            .map_err(|_| "Debug session state is unavailable".to_string())? = Some(session);
         Ok(())
     }
 
@@ -156,7 +159,12 @@ impl DebugSession {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|error| format!("Could not start the {} debug adapter: {error}", configuration.adapter_type))?;
+            .map_err(|error| {
+                format!(
+                    "Could not start the {} debug adapter: {error}",
+                    configuration.adapter_type
+                )
+            })?;
         let stdin = child
             .stdin
             .take()
@@ -190,7 +198,9 @@ impl DebugSession {
                 match read_dap_message(&mut reader) {
                     Ok(message) => match message.get("type").and_then(Value::as_str) {
                         Some("response") => {
-                            if let Some(request_sequence) = message.get("request_seq").and_then(Value::as_i64) {
+                            if let Some(request_sequence) =
+                                message.get("request_seq").and_then(Value::as_i64)
+                            {
                                 if let Ok(mut pending) = pending.lock() {
                                     if let Some(sender) = pending.remove(&request_sequence) {
                                         let _ = sender.send(message);
@@ -202,17 +212,23 @@ impl DebugSession {
                             let _ = app.emit("debug-event", message);
                         }
                         _ => {
-                            let _ = app.emit("debug-event", json!({
-                                "event": "protocolError",
-                                "body": { "message": "Received an unsupported DAP message" }
-                            }));
+                            let _ = app.emit(
+                                "debug-event",
+                                json!({
+                                    "event": "protocolError",
+                                    "body": { "message": "Received an unsupported DAP message" }
+                                }),
+                            );
                         }
                     },
                     Err(error) => {
-                        let _ = app.emit("debug-event", json!({
-                            "event": "adapterClosed",
-                            "body": { "message": error }
-                        }));
+                        let _ = app.emit(
+                            "debug-event",
+                            json!({
+                                "event": "adapterClosed",
+                                "body": { "message": error }
+                            }),
+                        );
                         break;
                     }
                 }
@@ -225,10 +241,13 @@ impl DebugSession {
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                let _ = app.emit("debug-event", json!({
-                    "event": "output",
-                    "body": { "category": "stderr", "output": format!("{line}\n") }
-                }));
+                let _ = app.emit(
+                    "debug-event",
+                    json!({
+                        "event": "output",
+                        "body": { "category": "stderr", "output": format!("{line}\n") }
+                    }),
+                );
             }
         });
     }
@@ -255,14 +274,25 @@ impl DebugSession {
             "command": command,
             "arguments": arguments,
         });
-        if let Err(error) = write_dap_message(&mut *self.stdin.lock().map_err(|_| "Debug adapter input is unavailable".to_string())?, &message) {
+        if let Err(error) = write_dap_message(
+            &mut *self
+                .stdin
+                .lock()
+                .map_err(|_| "Debug adapter input is unavailable".to_string())?,
+            &message,
+        ) {
             self.remove_pending(sequence);
-            return Err(format!("Could not send '{command}' to the debug adapter: {error}"));
+            return Err(format!(
+                "Could not send '{command}' to the debug adapter: {error}"
+            ));
         }
 
         let response = receiver.recv_timeout(REQUEST_TIMEOUT).map_err(|_| {
             self.remove_pending(sequence);
-            format!("The debug adapter did not respond to '{command}' within {} seconds", REQUEST_TIMEOUT.as_secs())
+            format!(
+                "The debug adapter did not respond to '{command}' within {} seconds",
+                REQUEST_TIMEOUT.as_secs()
+            )
         })?;
         if response.get("success").and_then(Value::as_bool) == Some(false) {
             let message = response
@@ -278,8 +308,12 @@ impl DebugSession {
         if breakpoint.source.trim().is_empty() {
             return Err("Breakpoint source path is required".to_string());
         }
-        let source = std::fs::canonicalize(&breakpoint.source)
-            .map_err(|_| format!("Breakpoint source file does not exist: {}", breakpoint.source))?;
+        let source = std::fs::canonicalize(&breakpoint.source).map_err(|_| {
+            format!(
+                "Breakpoint source file does not exist: {}",
+                breakpoint.source
+            )
+        })?;
         let requested: Vec<Value> = breakpoint
             .lines
             .iter()
@@ -298,7 +332,10 @@ impl DebugSession {
     }
 
     pub fn stop(&self) -> Result<(), String> {
-        let _ = self.request("disconnect", json!({ "restart": false, "terminateDebuggee": true }));
+        let _ = self.request(
+            "disconnect",
+            json!({ "restart": false, "terminateDebuggee": true }),
+        );
         if let Some(mut child) = self
             .child
             .lock()
@@ -329,7 +366,10 @@ fn adapter_command(adapter_type: &str) -> Result<(String, Vec<String>), String> 
         return Err(status.message);
     }
     match adapter_type {
-        "lldb" => Ok((status.executable.unwrap_or_else(|| "lldb-dap".to_string()), Vec::new())),
+        "lldb" => Ok((
+            status.executable.unwrap_or_else(|| "lldb-dap".to_string()),
+            Vec::new(),
+        )),
         "python" => Ok((
             status.executable.unwrap_or_else(|| "python3".to_string()),
             vec!["-m".to_string(), "debugpy.adapter".to_string()],
@@ -340,8 +380,14 @@ fn adapter_command(adapter_type: &str) -> Result<(String, Vec<String>), String> 
 
 fn configuration_arguments(configuration: &DebugConfiguration) -> Result<Value, String> {
     let mut arguments = serde_json::Map::new();
-    arguments.insert("name".to_string(), Value::String(configuration.name.clone()));
-    arguments.insert("type".to_string(), Value::String(configuration.adapter_type.clone()));
+    arguments.insert(
+        "name".to_string(),
+        Value::String(configuration.name.clone()),
+    );
+    arguments.insert(
+        "type".to_string(),
+        Value::String(configuration.adapter_type.clone()),
+    );
     arguments.insert(
         "request".to_string(),
         Value::String(match configuration.request {
@@ -355,8 +401,14 @@ fn configuration_arguments(configuration: &DebugConfiguration) -> Result<Value, 
     if let Some(cwd) = &configuration.cwd {
         arguments.insert("cwd".to_string(), Value::String(cwd.clone()));
     }
-    arguments.insert("args".to_string(), serde_json::to_value(&configuration.args).map_err(|error| error.to_string())?);
-    arguments.insert("env".to_string(), serde_json::to_value(&configuration.env).map_err(|error| error.to_string())?);
+    arguments.insert(
+        "args".to_string(),
+        serde_json::to_value(&configuration.args).map_err(|error| error.to_string())?,
+    );
+    arguments.insert(
+        "env".to_string(),
+        serde_json::to_value(&configuration.env).map_err(|error| error.to_string())?,
+    );
     Ok(Value::Object(arguments))
 }
 
@@ -365,7 +417,10 @@ fn command_is_available(command: &str) -> bool {
         Command::new("where").arg(command).status()
     } else {
         Command::new("sh")
-            .args(["-c", &format!("command -v {} >/dev/null 2>&1", shell_escape(command))])
+            .args([
+                "-c",
+                &format!("command -v {} >/dev/null 2>&1", shell_escape(command)),
+            ])
             .status()
     };
     status.map(|status| status.success()).unwrap_or(false)
@@ -388,7 +443,9 @@ fn read_dap_message(reader: &mut impl BufRead) -> Result<Value, String> {
     let mut content_length = None;
     loop {
         let mut line = String::new();
-        let read = reader.read_line(&mut line).map_err(|error| error.to_string())?;
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())?;
         if read == 0 {
             return Err("Debug adapter closed its output stream".to_string());
         }
@@ -397,21 +454,23 @@ fn read_dap_message(reader: &mut impl BufRead) -> Result<Value, String> {
             break;
         }
         if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            content_length = Some(
-                value
-                    .trim()
-                    .parse::<usize>()
-                    .map_err(|_| "Debug adapter sent an invalid Content-Length header".to_string())?,
-            );
+            content_length =
+                Some(value.trim().parse::<usize>().map_err(|_| {
+                    "Debug adapter sent an invalid Content-Length header".to_string()
+                })?);
         }
     }
-    let content_length = content_length.ok_or_else(|| "Debug adapter response omitted Content-Length".to_string())?;
+    let content_length = content_length
+        .ok_or_else(|| "Debug adapter response omitted Content-Length".to_string())?;
     if content_length > 16 * 1024 * 1024 {
         return Err("Debug adapter response exceeds the 16 MiB protocol limit".to_string());
     }
     let mut payload = vec![0_u8; content_length];
-    reader.read_exact(&mut payload).map_err(|error| error.to_string())?;
-    serde_json::from_slice(&payload).map_err(|error| format!("Debug adapter sent invalid JSON: {error}"))
+    reader
+        .read_exact(&mut payload)
+        .map_err(|error| error.to_string())?;
+    serde_json::from_slice(&payload)
+        .map_err(|error| format!("Debug adapter sent invalid JSON: {error}"))
 }
 
 #[cfg(test)]

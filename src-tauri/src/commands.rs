@@ -1251,7 +1251,9 @@ pub fn debug_set_breakpoints(
     source: String,
     lines: Vec<u32>,
 ) -> Result<Value, String> {
-    state.require_session()?.set_breakpoints(&SourceBreakpoint { source, lines })
+    state
+        .require_session()?
+        .set_breakpoints(&SourceBreakpoint { source, lines })
 }
 
 #[tauri::command]
@@ -1259,7 +1261,9 @@ pub fn debug_continue(
     state: State<'_, DebugSessionState>,
     thread_id: Option<i64>,
 ) -> Result<Value, String> {
-    state.require_session()?.request("continue", json!({ "threadId": thread_id.unwrap_or(0) }))
+    state
+        .require_session()?
+        .request("continue", json!({ "threadId": thread_id.unwrap_or(0) }))
 }
 
 #[tauri::command]
@@ -1267,7 +1271,9 @@ pub fn debug_next(
     state: State<'_, DebugSessionState>,
     thread_id: Option<i64>,
 ) -> Result<Value, String> {
-    state.require_session()?.request("next", json!({ "threadId": thread_id.unwrap_or(0) }))
+    state
+        .require_session()?
+        .request("next", json!({ "threadId": thread_id.unwrap_or(0) }))
 }
 
 #[tauri::command]
@@ -1275,7 +1281,9 @@ pub fn debug_step_in(
     state: State<'_, DebugSessionState>,
     thread_id: Option<i64>,
 ) -> Result<Value, String> {
-    state.require_session()?.request("stepIn", json!({ "threadId": thread_id.unwrap_or(0) }))
+    state
+        .require_session()?
+        .request("stepIn", json!({ "threadId": thread_id.unwrap_or(0) }))
 }
 
 #[tauri::command]
@@ -1283,7 +1291,9 @@ pub fn debug_step_out(
     state: State<'_, DebugSessionState>,
     thread_id: Option<i64>,
 ) -> Result<Value, String> {
-    state.require_session()?.request("stepOut", json!({ "threadId": thread_id.unwrap_or(0) }))
+    state
+        .require_session()?
+        .request("stepOut", json!({ "threadId": thread_id.unwrap_or(0) }))
 }
 
 #[tauri::command]
@@ -1291,7 +1301,9 @@ pub fn debug_pause(
     state: State<'_, DebugSessionState>,
     thread_id: Option<i64>,
 ) -> Result<Value, String> {
-    state.require_session()?.request("pause", json!({ "threadId": thread_id.unwrap_or(0) }))
+    state
+        .require_session()?
+        .request("pause", json!({ "threadId": thread_id.unwrap_or(0) }))
 }
 
 #[tauri::command]
@@ -1304,15 +1316,16 @@ pub fn debug_stack_trace(
     state: State<'_, DebugSessionState>,
     thread_id: i64,
 ) -> Result<Value, String> {
-    state.require_session()?.request("stackTrace", json!({ "threadId": thread_id }))
+    state
+        .require_session()?
+        .request("stackTrace", json!({ "threadId": thread_id }))
 }
 
 #[tauri::command]
-pub fn debug_scopes(
-    state: State<'_, DebugSessionState>,
-    frame_id: i64,
-) -> Result<Value, String> {
-    state.require_session()?.request("scopes", json!({ "frameId": frame_id }))
+pub fn debug_scopes(state: State<'_, DebugSessionState>, frame_id: i64) -> Result<Value, String> {
+    state
+        .require_session()?
+        .request("scopes", json!({ "frameId": frame_id }))
 }
 
 #[tauri::command]
@@ -1320,7 +1333,10 @@ pub fn debug_variables(
     state: State<'_, DebugSessionState>,
     variables_reference: i64,
 ) -> Result<Value, String> {
-    state.require_session()?.request("variables", json!({ "variablesReference": variables_reference }))
+    state.require_session()?.request(
+        "variables",
+        json!({ "variablesReference": variables_reference }),
+    )
 }
 
 #[tauri::command]
@@ -1332,11 +1348,14 @@ pub fn debug_evaluate(
     if expression.trim().is_empty() {
         return Err("Watch expression must not be empty".to_string());
     }
-    state.require_session()?.request("evaluate", json!({
-        "expression": expression,
-        "frameId": frame_id,
-        "context": "repl"
-    }))
+    state.require_session()?.request(
+        "evaluate",
+        json!({
+            "expression": expression,
+            "frameId": frame_id,
+            "context": "repl"
+        }),
+    )
 }
 
 #[cfg(test)]

@@ -80,7 +80,10 @@ pub fn validate_configuration(
     if let Some(program) = &configuration.program {
         let path = resolve_workspace_path(workspace_root, program)?;
         if !path.is_file() {
-            return Err(format!("Debug program is not a readable file: {}", path.display()));
+            return Err(format!(
+                "Debug program is not a readable file: {}",
+                path.display()
+            ));
         }
     }
     if let Some(cwd) = &configuration.cwd {
