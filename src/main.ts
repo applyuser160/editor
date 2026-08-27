@@ -137,6 +137,10 @@ interface OpenTab {
   model: monaco.editor.ITextModel;
   isDirty: boolean;
   version: number;
+  /** The view rendered when this tab is selected. */
+  viewMode: "text" | "git-diff";
+  /** Base revision content used while this tab is displayed as a Git diff. */
+  diffOriginal?: string;
 }
 
 interface MenuItemDef {
@@ -169,7 +173,6 @@ const diffEditors = new Map<
     path: string;
     editor: monaco.editor.IStandaloneDiffEditor;
     original: monaco.editor.ITextModel;
-    modified: monaco.editor.ITextModel;
   }
 >();
 let activeEditorPane: 1 | 2 = 1;
@@ -860,12 +863,16 @@ fn main() {
 
   editor1.onDidFocusEditorText(() => {
     activeEditorPane = 1;
+    activeFilePath = pane1FilePath;
     closeGlobalMenu();
+    updateTabBar();
     if (pane1FilePath) updateStatusBar(pane1FilePath);
   });
   editor2.onDidFocusEditorText(() => {
     activeEditorPane = 2;
+    activeFilePath = pane2FilePath;
     closeGlobalMenu();
+    updateTabBar();
     if (pane2FilePath) updateStatusBar(pane2FilePath);
   });
   editor1.onMouseDown(() => closeGlobalMenu());
@@ -922,6 +929,7 @@ fn main() {
     model: initialModel,
     isDirty: false,
     version: 1,
+    viewMode: "text",
   });
   activeFilePath = welcomePath;
   updateTabBar();
@@ -2279,6 +2287,31 @@ async function initExtensionHost() {
 }
 
 // 9. Open / Switch Files
+function showTabInPane(tab: OpenTab, pane: 1 | 2) {
+  const targetPane = pane === 2 && isSplitActive ? 2 : 1;
+  activeEditorPane = targetPane;
+  activeFilePath = tab.path;
+  if (targetPane === 1) {
+    pane1FilePath = tab.path;
+  } else {
+    pane2FilePath = tab.path;
+  }
+
+  if (tab.viewMode === "git-diff" && tab.diffOriginal !== undefined) {
+    showGitDiffPreview(tab, targetPane);
+  } else {
+    clearGitDiffPreview(targetPane);
+    clearImagePreview(targetPane);
+    const editor = targetPane === 1 ? editor1 : editor2;
+    editor?.setModel(tab.model);
+  }
+
+  updateTabBar();
+  updateStatusBar(tab.path);
+  updateBreadcrumbs(tab.path);
+  applyStoredSettings();
+}
+
 async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
   if (!editor1) {
     showToast(
@@ -2297,22 +2330,14 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     await openImagePreview(path, fileName, pane);
     return;
   }
-  clearGitDiffPreview(pane);
-  clearImagePreview(pane);
 
-  if (openTabs.has(path)) {
-    activeFilePath = path;
-    const tab = openTabs.get(path)!;
-    if (pane === 1 || !isSplitActive) {
-      editor1.setModel(tab.model);
-      pane1FilePath = path;
-    } else if (editor2) {
-      editor2.setModel(tab.model);
-      pane2FilePath = path;
-    }
-    updateTabBar();
-    updateStatusBar(path);
-    applyStoredSettings();
+  const existingTab = openTabs.get(path);
+  if (existingTab) {
+    // Opening from the explorer intentionally returns the selected tab to its
+    // editable text view. Selecting its tab keeps the stored view mode instead.
+    existingTab.viewMode = "text";
+    existingTab.diffOriginal = undefined;
+    showTabInPane(existingTab, pane);
     loadWorkspaceFiles();
     return;
   }
@@ -2337,6 +2362,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
       model,
       isDirty: false,
       version: 1,
+      viewMode: "text",
     };
 
     model.onDidChangeContent(() => {
@@ -2346,7 +2372,6 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
         tab.version++;
         updateTabBar();
 
-        // Notify LSP of change with incrementing version
         invoke("lsp_send_notification", {
           lang: language,
           method: "textDocument/didChange",
@@ -2359,16 +2384,6 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     });
 
     openTabs.set(path, tabData);
-    activeFilePath = path;
-    if (pane === 1 || !isSplitActive) {
-      editor1.setModel(model);
-      pane1FilePath = path;
-    } else if (editor2) {
-      editor2.setModel(model);
-      pane2FilePath = path;
-    }
-
-    // Ensure LSP is running and send didOpen
     ensureLspServerStarted(language);
     invoke("lsp_send_notification", {
       lang: language,
@@ -2383,9 +2398,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
       },
     }).catch(() => {});
 
-    updateTabBar();
-    updateStatusBar(path);
-    applyStoredSettings();
+    showTabInPane(tabData, pane);
     loadWorkspaceFiles();
     showStatusMessage(`開きました: ${fileName}`);
   } catch (err: unknown) {
@@ -2409,7 +2422,6 @@ function clearGitDiffPreview(pane: 1 | 2) {
   if (existing) {
     existing.editor.dispose();
     existing.original.dispose();
-    existing.modified.dispose();
     diffEditors.delete(pane);
   }
   document.getElementById(`git-diff-preview-${pane}`)?.remove();
@@ -2418,9 +2430,52 @@ function clearGitDiffPreview(pane: 1 | 2) {
 }
 
 function clearGitDiffPreviewsForPath(path: string) {
-  for (const [pane, diff] of diffEditors.entries()) {
+  for (const [pane, diff] of Array.from(diffEditors.entries())) {
     if (diff.path === path) clearGitDiffPreview(pane);
   }
+}
+
+function showGitDiffPreview(tab: OpenTab, pane: 1 | 2) {
+  clearImagePreview(pane);
+  clearGitDiffPreview(pane);
+  const editorContainer = document.getElementById(`editor-container-${pane}`);
+  const editorPane = document.getElementById(`editor-pane-${pane}`);
+  if (!editorContainer || !editorPane) {
+    throw new Error("差分表示領域が見つかりません");
+  }
+
+  editorContainer.style.display = "none";
+  const host = document.createElement("div");
+  host.id = `git-diff-preview-${pane}`;
+  host.style.cssText = "width:100%; height:100%;";
+  editorPane.appendChild(host);
+
+  const original = monaco.editor.createModel(
+    tab.diffOriginal!,
+    getLanguageFromPath(tab.path),
+    monaco.Uri.parse(
+      `git-original:///${encodeURIComponent(tab.path)}?pane=${pane}`,
+    ),
+  );
+  const editor = monaco.editor.createDiffEditor(host, {
+    theme: "vscode-dark-plus",
+    readOnly: true,
+    originalEditable: false,
+    automaticLayout: true,
+    renderSideBySide: true,
+    minimap: { enabled: true },
+    scrollBeyondLastLine: false,
+  });
+  editor.setModel({ original, modified: tab.model });
+  const activateDiffTab = () => {
+    activeEditorPane = pane;
+    activeFilePath = tab.path;
+    updateTabBar();
+    updateStatusBar(tab.path);
+  };
+  editor.getOriginalEditor().onDidFocusEditorText(activateDiffTab);
+  editor.getModifiedEditor().onDidFocusEditorText(activateDiffTab);
+  diffEditors.set(pane, { path: tab.path, editor, original });
 }
 
 async function openGitDiff(rawPath: string) {
@@ -2430,44 +2485,41 @@ async function openGitDiff(rawPath: string) {
     const diff = await invoke<GitFileDiff>("git_get_file_diff", {
       path: rawPath,
     });
-    clearImagePreview(pane);
-    clearGitDiffPreview(pane);
-    const editorContainer = document.getElementById(`editor-container-${pane}`);
-    const editorPane = document.getElementById(`editor-pane-${pane}`);
-    if (!editorContainer || !editorPane) {
-      throw new Error("差分表示領域が見つかりません");
+    const fileName = diff.path.split(/[\\/]/).pop() || diff.path;
+    let tab = openTabs.get(path);
+
+    if (!tab) {
+      const language = getLanguageFromPath(path);
+      const model = monaco.editor.createModel(
+        diff.modified,
+        language,
+        monaco.Uri.parse(pathToUri(path)),
+      );
+      tab = {
+        path,
+        name: fileName,
+        model,
+        isDirty: false,
+        version: 1,
+        viewMode: "text",
+      };
+      model.onDidChangeContent(() => {
+        const currentTab = openTabs.get(path);
+        if (currentTab) {
+          currentTab.isDirty = true;
+          currentTab.version++;
+          updateTabBar();
+        }
+      });
+      openTabs.set(path, tab);
+    } else if (!tab.isDirty && tab.model.getValue() !== diff.modified) {
+      tab.model.setValue(diff.modified);
+      tab.isDirty = false;
     }
 
-    editorContainer.style.display = "none";
-    const host = document.createElement("div");
-    host.id = `git-diff-preview-${pane}`;
-    host.style.cssText = "width:100%; height:100%;";
-    editorPane.appendChild(host);
-
-    const language = getLanguageFromPath(diff.path);
-    const original = monaco.editor.createModel(
-      diff.original,
-      language,
-      monaco.Uri.parse(`git-original:///${encodeURIComponent(path)}`),
-    );
-    const modified = monaco.editor.createModel(
-      diff.modified,
-      language,
-      monaco.Uri.parse(`git-working:///${encodeURIComponent(path)}`),
-    );
-    const editor = monaco.editor.createDiffEditor(host, {
-      theme: "vscode-dark-plus",
-      readOnly: true,
-      originalEditable: false,
-      automaticLayout: true,
-      renderSideBySide: true,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
-    });
-    editor.setModel({ original, modified });
-    diffEditors.set(pane, { path, editor, original, modified });
-    activeFilePath = path;
-    updateStatusBar(path);
+    tab.viewMode = "git-diff";
+    tab.diffOriginal = diff.original;
+    showTabInPane(tab, pane);
     showStatusMessage(`差分を表示: ${diff.path}`);
   } catch (error) {
     console.error(`Failed to load Git diff for '${rawPath}':`, error);
@@ -2813,7 +2865,7 @@ function updateTabBar() {
     };
     tabEl.appendChild(closeBtn);
 
-    tabEl.onclick = () => openFile(tab.path, tab.name);
+    tabEl.onclick = () => showTabInPane(tab, activeEditorPane);
 
     // Middle-click to close (mouse wheel)
     tabEl.onauxclick = async (e) => {
@@ -2862,14 +2914,11 @@ async function closeTab(rawPath: string): Promise<boolean> {
   const keys = Array.from(openTabs.keys());
   const closedIndex = keys.indexOf(path);
 
+  // The visible diff editor belongs to this tab. Dispose it before the
+  // shared working-tree model is released, even when the tab is not active.
+  clearGitDiffPreviewsForPath(path);
   tab.model.dispose();
   openTabs.delete(path);
-  clearGitDiffPreviewsForPath(path);
-
-  const diffPane = Array.from(diffEditors.entries()).find(
-    ([, diff]) => diff.path === path,
-  )?.[0];
-  if (diffPane) clearGitDiffPreview(diffPane);
 
   if (activeFilePath === path) {
     const remainingKeys = Array.from(openTabs.keys());
@@ -2879,7 +2928,7 @@ async function closeTab(rawPath: string): Promise<boolean> {
         remainingKeys.length - 1,
       );
       const nextPath = remainingKeys[nextIndex];
-      openFile(nextPath, openTabs.get(nextPath)!.name);
+      showTabInPane(openTabs.get(nextPath)!, activeEditorPane);
     } else {
       activeFilePath = null;
       pane1FilePath = null;
