@@ -44,7 +44,9 @@ impl PtyState {
         let shell = if cfg!(target_os = "windows") {
             "powershell.exe"
         } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()).leak()
+            std::env::var("SHELL")
+                .unwrap_or_else(|_| "/bin/bash".to_string())
+                .leak()
         };
 
         let mut cmd = CommandBuilder::new(shell);

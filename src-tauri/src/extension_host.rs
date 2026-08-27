@@ -81,10 +81,16 @@ impl ExtensionHostState {
         self.extensions.lock().unwrap().clone()
     }
 
-    pub fn install_vsix(&self, expected_id: &str, bytes: &[u8]) -> Result<ExtensionManifest, String> {
+    pub fn install_vsix(
+        &self,
+        expected_id: &str,
+        bytes: &[u8],
+    ) -> Result<ExtensionManifest, String> {
         let manifest = parse_vsix_manifest(bytes)?;
         if manifest.id != expected_id {
-            return Err("VSIX manifest identifier does not match the selected extension".to_string());
+            return Err(
+                "VSIX manifest identifier does not match the selected extension".to_string(),
+            );
         }
 
         let archive_path = extension_archive_path(&manifest.id);
@@ -188,7 +194,11 @@ fn builtin_extensions() -> Vec<ExtensionManifest> {
             main: None,
             activation_events: vec![],
             contributes_languages: vec![],
-            contributes_themes: vec!["vscode-dark-plus".to_string(), "vs".to_string(), "hc-black".to_string()],
+            contributes_themes: vec![
+                "vscode-dark-plus".to_string(),
+                "vs".to_string(),
+                "hc-black".to_string(),
+            ],
             enabled: true,
         },
     ]
@@ -199,7 +209,8 @@ fn parse_vsix_manifest(bytes: &[u8]) -> Result<ExtensionManifest, String> {
         return Err("VSIX archive exceeds the 50 MiB size limit".to_string());
     }
 
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|error| format!("Invalid VSIX archive: {}", error))?;
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| format!("Invalid VSIX archive: {}", error))?;
     if archive.len() > MAX_VSIX_ENTRIES {
         return Err("VSIX archive contains too many entries".to_string());
     }
@@ -250,7 +261,8 @@ fn parse_vsix_manifest(bytes: &[u8]) -> Result<ExtensionManifest, String> {
 }
 
 fn extract_vsix(bytes: &[u8], destination: &PathBuf) -> Result<(), String> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|error| format!("Invalid VSIX archive: {}", error))?;
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| format!("Invalid VSIX archive: {}", error))?;
     if archive.len() > MAX_VSIX_ENTRIES {
         return Err("VSIX archive contains too many entries".to_string());
     }
@@ -280,9 +292,9 @@ fn extract_vsix(bytes: &[u8], destination: &PathBuf) -> Result<(), String> {
 fn validate_manifest_field(value: &str, field: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 255
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         return Err(format!("VSIX manifest contains an invalid {}", field));
     }
