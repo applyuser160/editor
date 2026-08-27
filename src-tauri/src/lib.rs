@@ -66,6 +66,7 @@ pub fn run() {
             commands::run_named_task,
             commands::get_workspace_path,
             commands::reveal_in_os_explorer,
+            commands::preview_workspace_text_edit,
             commands::replace_in_workspace
         ])
         .run(tauri::generate_context!())

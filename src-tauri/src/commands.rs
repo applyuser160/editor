@@ -32,6 +32,13 @@ pub struct SearchMatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceTextEdit {
+    pub path: String,
+    pub expected_content: String,
+    pub replacement_content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitStatusResult {
     pub branch: String,
     pub changed_files: Vec<String>,
@@ -610,6 +617,21 @@ fn search_recursive_regex(
         }
     }
     Ok(())
+}
+
+pub fn validate_workspace_text_edit(edit: &WorkspaceTextEdit) -> Result<(), String> {
+    let path = get_absolute_path(&edit.path)?;
+    let current = std::fs::read_to_string(&path)
+        .map_err(|error| format!("Could not read edit target '{}': {}", edit.path, error))?;
+    if current != edit.expected_content {
+        return Err(format!("Edit target '{}' changed since the preview was created", edit.path));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn preview_workspace_text_edit(edit: WorkspaceTextEdit) -> Result<(), String> {
+    validate_workspace_text_edit(&edit)
 }
 
 #[tauri::command]
