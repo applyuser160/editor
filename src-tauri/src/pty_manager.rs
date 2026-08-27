@@ -182,13 +182,15 @@ fn terminal_profiles() -> Vec<TerminalProfile> {
             "cmd.exe",
             &[],
         );
-        add_profile(
-            &mut profiles,
-            "git-bash",
-            "Git Bash",
-            "bash.exe",
-            &["--login", "-i"],
-        );
+        if let Some(git_bash) = git_bash_executable() {
+            add_profile(
+                &mut profiles,
+                "git-bash",
+                "Git Bash",
+                &git_bash,
+                &["--login", "-i"],
+            );
+        }
         add_profile(&mut profiles, "wsl", "Ubuntu (WSL)", "wsl.exe", &[]);
         return profiles;
     }
@@ -204,6 +206,35 @@ fn terminal_profiles() -> Vec<TerminalProfile> {
         add_profile(&mut profiles, "sh", "POSIX shell", "sh", &[]);
         profiles
     }
+}
+
+#[cfg(target_os = "windows")]
+fn git_bash_executable() -> Option<String> {
+    let mut roots = vec![
+        PathBuf::from(r"C:\Program Files"),
+        PathBuf::from(r"C:\Program Files (x86)"),
+    ];
+    for variable in [
+        "ProgramW6432",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "LocalAppData",
+    ] {
+        if let Some(path) = env::var_os(variable) {
+            roots.push(PathBuf::from(path));
+        }
+    }
+
+    roots
+        .into_iter()
+        .flat_map(|root| {
+            [
+                root.join("Git/bin/bash.exe"),
+                root.join("Git/usr/bin/bash.exe"),
+            ]
+        })
+        .find(|candidate| candidate.is_file())
+        .map(|candidate| candidate.to_string_lossy().to_string())
 }
 
 fn add_profile(
