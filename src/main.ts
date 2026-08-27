@@ -842,6 +842,21 @@ fn main() {
     model: initialModel,
   });
 
+  // Monaco registers this binding in the editor's own keybinding service. This
+  // avoids relying solely on DOM event propagation through a native WebView.
+  const registerSaveAction = (editor: monaco.editor.IStandaloneCodeEditor) => {
+    editor.addAction({
+      id: "oxide.saveActiveFile",
+      label: "保存 (Save)",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => {
+        void saveActiveFile();
+      },
+    });
+  };
+  registerSaveAction(editor1);
+  registerSaveAction(editor2);
+
   editor1.onDidFocusEditorText(() => {
     activeEditorPane = 1;
     closeGlobalMenu();
