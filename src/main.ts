@@ -20,8 +20,9 @@ import {
   getProfiles,
   getScopedSettings,
   importProfile,
+  initializeSettingsPersistence,
   keybindingFromEvent,
-  migrateLegacySettings,
+  reloadSettingsPersistence,
   resetKeybindings,
   resolveSettings,
   saveKeybindings,
@@ -228,13 +229,13 @@ window.addEventListener("DOMContentLoaded", async () => {
       name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
     });
     await confirmWorkspaceTrust();
+    await initializeSettingsPersistence(workspaceRoot);
   } catch (e) {
     console.warn("Failed to get workspace path:", e);
   }
 
   initLanguageServerIntegration();
   initMonacoEditors();
-  migrateLegacySettings();
   applyStoredSettings();
   setupVSCodeMenus();
   setupActivityBar();
@@ -4787,6 +4788,10 @@ async function switchWorkspace(workspace: WorkspaceInfo) {
   }
   workspaceRoot = workspace.root;
   await refreshWorkspaceState();
+  await reloadSettingsPersistence(workspaceRoot).catch((error) =>
+    console.warn("Failed to reload editor configuration:", error),
+  );
+  applyStoredSettings();
   activeLspServers.clear();
   collapsedFolders.clear();
 

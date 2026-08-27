@@ -3,6 +3,7 @@ pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
+pub mod settings_store;
 pub mod task_runner;
 pub mod test_runner;
 pub mod workspace;
@@ -83,7 +84,13 @@ pub fn run() {
             commands::list_recent_workspaces,
             commands::remove_recent_workspace,
             commands::reveal_in_os_explorer,
-            commands::replace_in_workspace
+            commands::replace_in_workspace,
+            commands::load_editor_configuration,
+            commands::save_editor_configuration,
+            commands::migrate_editor_configuration,
+            commands::store_credential,
+            commands::has_credential,
+            commands::delete_credential
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Editor Tauri application");

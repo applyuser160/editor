@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export interface EditorSettings {
   theme: "vscode-dark-plus" | "vs" | "hc-black";
   fontSize: number;
@@ -25,6 +27,14 @@ export interface EditorProfile {
   settings: Partial<EditorSettings>;
   keybindings: Keybinding[];
   extensions: string[];
+}
+
+interface NativeSettingsSnapshot {
+  userSettings: unknown;
+  workspaceSettings: unknown;
+  languageSettings: Record<string, unknown>;
+  keybindings: unknown;
+  profiles: unknown;
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -80,20 +90,31 @@ const USER_SETTINGS_KEY = "oxide.settings.user";
 const KEYBINDINGS_KEY = "oxide.keybindings.user";
 const PROFILES_KEY = "oxide.profiles";
 const LEGACY_MIGRATION_KEY = "oxide.settings.legacy-migrated";
+const LANGUAGE_SETTINGS_PREFIX = "oxide.settings.language:";
+
+const storedValues = new Map<string, unknown>();
+let activeWorkspaceRoot = "";
+let nativeStoreReady = false;
+let legacyFallback = false;
+let savePending = false;
 
 function workspaceSettingsKey(workspaceRoot: string): string {
   return `oxide.settings.workspace:${encodeURIComponent(workspaceRoot || "default")}`;
 }
 
 function languageSettingsKey(language: string): string {
-  return `oxide.settings.language:${language || "plaintext"}`;
+  return `${LANGUAGE_SETTINGS_PREFIX}${language || "plaintext"}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readJson(key: string): unknown {
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function readLegacyJson(key: string): unknown {
   const value = localStorage.getItem(key);
   if (!value) return null;
   try {
@@ -101,6 +122,22 @@ function readJson(key: string): unknown {
   } catch {
     return null;
   }
+}
+
+function readJson(key: string): unknown {
+  if (storedValues.has(key)) return storedValues.get(key) ?? null;
+  if (legacyFallback) return readLegacyJson(key);
+  return null;
+}
+
+function writeJson(key: string, value: unknown): void {
+  storedValues.set(key, cloneJson(value));
+  scheduleNativeSave();
+}
+
+function removeJson(key: string): void {
+  storedValues.delete(key);
+  scheduleNativeSave();
 }
 
 function validateSettings(value: unknown): Partial<EditorSettings> {
@@ -183,26 +220,188 @@ function settingsKey(
   return USER_SETTINGS_KEY;
 }
 
-export function migrateLegacySettings(): void {
-  if (localStorage.getItem(LEGACY_MIGRATION_KEY)) return;
+function legacySettingsForCurrentWorkspace(
+  workspaceRoot: string,
+): NativeSettingsSnapshot {
+  const languageSettings: Record<string, unknown> = {};
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key || !key.startsWith(LANGUAGE_SETTINGS_PREFIX)) continue;
+    const language = key.slice(LANGUAGE_SETTINGS_PREFIX.length);
+    const value = readLegacyJson(key);
+    if (value !== null) languageSettings[language] = value;
+  }
 
-  const settings: Partial<EditorSettings> = {};
+  const legacyUserSettings = readLegacyJson(USER_SETTINGS_KEY) ?? {};
+  const oldSettings: Partial<EditorSettings> = {};
+  const oldTheme = localStorage.getItem("oxide_theme");
+  const oldFontSize = Number(localStorage.getItem("oxide_fontSize"));
+  const oldTabSize = Number(localStorage.getItem("oxide_tabSize"));
+  const oldMinimap = localStorage.getItem("oxide_minimap");
+  if (
+    oldTheme === "vscode-dark-plus" ||
+    oldTheme === "vs" ||
+    oldTheme === "hc-black"
+  )
+    oldSettings.theme = oldTheme;
+  if (oldFontSize >= 10 && oldFontSize <= 28)
+    oldSettings.fontSize = oldFontSize;
+  if (oldTabSize >= 2 && oldTabSize <= 8) oldSettings.tabSize = oldTabSize;
+  if (oldMinimap !== null) oldSettings.minimap = oldMinimap !== "false";
+
+  return {
+    userSettings: {
+      ...oldSettings,
+      ...(isRecord(legacyUserSettings) ? legacyUserSettings : {}),
+    },
+    workspaceSettings:
+      readLegacyJson(workspaceSettingsKey(workspaceRoot)) ?? {},
+    languageSettings,
+    keybindings: readLegacyJson(KEYBINDINGS_KEY) ?? [],
+    profiles: readLegacyJson(PROFILES_KEY) ?? [],
+  };
+}
+
+function hydrate(
+  snapshot: NativeSettingsSnapshot,
+  workspaceRoot: string,
+): void {
+  activeWorkspaceRoot = workspaceRoot;
+  storedValues.clear();
+  storedValues.set(USER_SETTINGS_KEY, cloneJson(snapshot.userSettings));
+  storedValues.set(
+    workspaceSettingsKey(workspaceRoot),
+    cloneJson(snapshot.workspaceSettings),
+  );
+  storedValues.set(KEYBINDINGS_KEY, cloneJson(snapshot.keybindings));
+  storedValues.set(PROFILES_KEY, cloneJson(snapshot.profiles));
+  Object.entries(snapshot.languageSettings || {}).forEach(
+    ([language, value]) => {
+      storedValues.set(languageSettingsKey(language), cloneJson(value));
+    },
+  );
+}
+
+function snapshotForPersistence(): NativeSettingsSnapshot {
+  const languageSettings: Record<string, unknown> = {};
+  storedValues.forEach((value, key) => {
+    if (key.startsWith(LANGUAGE_SETTINGS_PREFIX)) {
+      languageSettings[key.slice(LANGUAGE_SETTINGS_PREFIX.length)] =
+        cloneJson(value);
+    }
+  });
+
+  return {
+    userSettings: readJson(USER_SETTINGS_KEY) ?? {},
+    workspaceSettings:
+      readJson(workspaceSettingsKey(activeWorkspaceRoot)) ?? {},
+    languageSettings,
+    keybindings: readJson(KEYBINDINGS_KEY) ?? [],
+    profiles: readJson(PROFILES_KEY) ?? [],
+  };
+}
+
+function clearMigratedLocalStorage(workspaceRoot: string): void {
+  const keys = [
+    USER_SETTINGS_KEY,
+    KEYBINDINGS_KEY,
+    PROFILES_KEY,
+    workspaceSettingsKey(workspaceRoot),
+    "oxide_theme",
+    "oxide_fontSize",
+    "oxide_tabSize",
+    "oxide_minimap",
+  ];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(LANGUAGE_SETTINGS_PREFIX)) keys.push(key);
+  }
+  keys.forEach((key) => localStorage.removeItem(key));
+  localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
+}
+
+function scheduleNativeSave(): void {
+  if (!nativeStoreReady || savePending) return;
+  savePending = true;
+  queueMicrotask(async () => {
+    savePending = false;
+    try {
+      const snapshot = await invoke<NativeSettingsSnapshot>(
+        "save_editor_configuration",
+        {
+          snapshot: snapshotForPersistence(),
+        },
+      );
+      hydrate(snapshot, activeWorkspaceRoot);
+    } catch (error) {
+      console.error("Failed to persist editor configuration:", error);
+    }
+  });
+}
+
+export async function initializeSettingsPersistence(
+  workspaceRoot: string,
+): Promise<void> {
+  activeWorkspaceRoot = workspaceRoot;
+  legacyFallback = false;
+  const legacySnapshot = legacySettingsForCurrentWorkspace(workspaceRoot);
+  try {
+    const snapshot = await invoke<NativeSettingsSnapshot>(
+      "migrate_editor_configuration",
+      {
+        snapshot: legacySnapshot,
+      },
+    );
+    hydrate(snapshot, workspaceRoot);
+    nativeStoreReady = true;
+    clearMigratedLocalStorage(workspaceRoot);
+  } catch (error) {
+    nativeStoreReady = false;
+    legacyFallback = true;
+    console.error("Failed to initialize native editor configuration:", error);
+    throw error;
+  }
+}
+
+export async function reloadSettingsPersistence(
+  workspaceRoot = activeWorkspaceRoot,
+): Promise<void> {
+  if (!nativeStoreReady) return;
+  const snapshot = await invoke<NativeSettingsSnapshot>(
+    "load_editor_configuration",
+  );
+  hydrate(snapshot, workspaceRoot);
+}
+
+export function migrateLegacySettings(): void {
+  // Native initialization performs the authoritative migration. This fallback preserves
+  // the former synchronous API for callers that run before the native bridge is ready.
+  if (nativeStoreReady || localStorage.getItem(LEGACY_MIGRATION_KEY)) return;
+  if (storedValues.has(USER_SETTINGS_KEY)) {
+    localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
+    return;
+  }
+
+  const savedUserSettings = readLegacyJson(USER_SETTINGS_KEY);
+  if (isRecord(savedUserSettings)) {
+    storedValues.set(USER_SETTINGS_KEY, cloneJson(savedUserSettings));
+    localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
+    return;
+  }
+
+  const legacy: Partial<EditorSettings> = {};
   const theme = localStorage.getItem("oxide_theme");
   const fontSize = Number(localStorage.getItem("oxide_fontSize"));
   const tabSize = Number(localStorage.getItem("oxide_tabSize"));
   const minimap = localStorage.getItem("oxide_minimap");
-
   if (theme === "vscode-dark-plus" || theme === "vs" || theme === "hc-black")
-    settings.theme = theme;
-  if (fontSize >= 10 && fontSize <= 28) settings.fontSize = fontSize;
-  if (tabSize >= 2 && tabSize <= 8) settings.tabSize = tabSize;
-  if (minimap !== null) settings.minimap = minimap !== "false";
-
-  if (
-    Object.keys(settings).length > 0 &&
-    localStorage.getItem(USER_SETTINGS_KEY) === null
-  ) {
-    localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(settings));
+    legacy.theme = theme;
+  if (fontSize >= 10 && fontSize <= 28) legacy.fontSize = fontSize;
+  if (tabSize >= 2 && tabSize <= 8) legacy.tabSize = tabSize;
+  if (minimap !== null) legacy.minimap = minimap !== "false";
+  if (Object.keys(legacy).length > 0) {
+    storedValues.set(USER_SETTINGS_KEY, cloneJson(legacy));
+    localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(legacy));
   }
   localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
 }
@@ -222,10 +421,7 @@ export function saveScopedSettings(
   value: unknown,
 ): Partial<EditorSettings> {
   const settings = validateSettings(value);
-  localStorage.setItem(
-    settingsKey(scope, workspaceRoot, language),
-    JSON.stringify(settings, null, 2),
-  );
+  writeJson(settingsKey(scope, workspaceRoot, language), settings);
   return settings;
 }
 
@@ -313,12 +509,12 @@ export function getKeybindings(): Keybinding[] {
 
 export function saveKeybindings(value: unknown): Keybinding[] {
   const keybindings = validateKeybindings(value);
-  localStorage.setItem(KEYBINDINGS_KEY, JSON.stringify(keybindings, null, 2));
+  writeJson(KEYBINDINGS_KEY, keybindings);
   return keybindings;
 }
 
 export function resetKeybindings(): Keybinding[] {
-  localStorage.removeItem(KEYBINDINGS_KEY);
+  removeJson(KEYBINDINGS_KEY);
   return getKeybindings();
 }
 
@@ -410,7 +606,7 @@ export function getProfiles(): EditorProfile[] {
 }
 
 function storeProfiles(profiles: EditorProfile[]): void {
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles, null, 2));
+  writeJson(PROFILES_KEY, profiles);
 }
 
 export function createProfile(
@@ -436,14 +632,8 @@ export function deleteProfile(id: string): void {
 }
 
 export function applyProfile(profile: EditorProfile): void {
-  localStorage.setItem(
-    USER_SETTINGS_KEY,
-    JSON.stringify(profile.settings, null, 2),
-  );
-  localStorage.setItem(
-    KEYBINDINGS_KEY,
-    JSON.stringify(profile.keybindings, null, 2),
-  );
+  writeJson(USER_SETTINGS_KEY, profile.settings);
+  writeJson(KEYBINDINGS_KEY, profile.keybindings);
 }
 
 export function exportProfile(profile: EditorProfile): string {

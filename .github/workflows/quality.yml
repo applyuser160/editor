@@ -32,12 +32,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, rust-src
       - name: Install Linux test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      # `tauri::generate_context!` validates frontendDist at compile time. Library tests do
+      # not need a production bundle, but they do require this configured path to exist.
+      - name: Create frontend output placeholder for Tauri context
+        run: mkdir -p dist
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
       - run: git diff --check
       - run: git diff --exit-code
@@ -68,6 +72,6 @@ jobs:
             libssl-dev \
             wget
       - run: npm ci
-      - run: npm run tauri -- build --bundles none
+      - run: npm run tauri -- build --no-bundle
       - run: git diff --check
       - run: git diff --exit-code
