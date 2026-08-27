@@ -1,8 +1,10 @@
 # ADR-0001: Rust言語とGPUレンダリングエンジンの採用
 
-- **ステータス:** Accepted
+- **ステータス:** Deferred（現行実装では未採用）
 - **決定者:** Syun
 - **決定日:** 2026-08-22
+- **見直し日:** 2026-08-27
+- **実装状況:** [現行実装はTauri WebViewとMonaco Editorを使用](../implementation-status.md)。`wgpu`および`vello`は依存関係に含まれない。
 
 ---
 
@@ -24,7 +26,7 @@ VS Code は Electron (Chromium + Node.js) をベースとしており、豊富�
 
 ## 決定結果
 
-**選択肢 1: Rust + WGPU / Vello** を採用します。
+**この方針は延期します。** 現行リリースでは Tauri v2 と Monaco Editor を採用しており、Rust + WGPU / Vello への移行は、実現可能性の検証と移行計画を完了するまで実施しません。
 
 ### 決定理由
 

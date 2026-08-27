@@ -1,6 +1,6 @@
 # Microsoft VS Code 全ファイル・全モジュール網羅的解析チェックリスト
 
-> 本チェックリストは、Microsoft 公式リポジトリ [`microsoft/vscode`](https://github.com/microsoft/vscode) のすべてのファイル・ディレクトリ・アーキテクチャモジュールを漏れなく解析し、Rust 製ネイティブフレームワークへの完全置換・移植を完遂するための網羅的進捗管理表です。
+> **文書状態: 調査記録。** 本チェックリストは、Microsoft 公式リポジトリ [`microsoft/vscode`](https://github.com/microsoft/vscode) のファイル・ディレクトリ・アーキテクチャモジュールに対する**解析の進捗**を記録します。チェック済みの項目は解析済みを意味し、Oxide Editorにおける実装、互換性、性能、または検証の完了を意味しません。実装状況は[実装状況とロードマップ](../implementation-status.md)を参照してください。
 
 ---
 
