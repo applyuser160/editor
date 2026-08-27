@@ -1102,7 +1102,7 @@ pub async fn git_discard_file(
         .strip_prefix(&workspace_root)
         .map_err(|_| "Discard path is outside the workspace".to_string())?
         .to_string_lossy()
-        .to_string();
+        .replace('\\', "/");
     let tracked = Command::new("git")
         .current_dir(&workspace_root)
         .args(["ls-files", "--error-unmatch", "--", &relative_path])
