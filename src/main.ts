@@ -5387,26 +5387,52 @@ function setupStatusBarInteractions() {
 }
 
 // 20. Global Shortcuts & Status Bar
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(
+    element &&
+    (element.tagName === "INPUT" ||
+      element.tagName === "TEXTAREA" ||
+      element.isContentEditable),
+  );
+}
+
+function isGlobalShortcut(event: KeyboardEvent): boolean {
+  return (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    /^F\d{1,2}$/.test(event.key)
+  );
+}
+
 function setupShortcuts() {
-  window.addEventListener("keydown", (e) => {
-    const target = e.target as HTMLElement | null;
-    const isTextInput =
-      (target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable) &&
-      !target?.classList.contains("inputarea");
-    const command = isTextInput ? null : commandForEvent(e);
-    if (command) {
-      e.preventDefault();
-      executeCommand(command);
-      return;
-    }
-    if (e.key === "Escape") {
-      closeGlobalMenu();
-      closeQuickPick();
-      document.getElementById("confirm-modal")?.classList.add("hidden");
-    }
-  });
+  // Register in the capture phase because Monaco can consume keydown events in
+  // its editor input area before a bubbling window listener receives them.
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.isComposing) return;
+
+      const command = commandForEvent(event);
+      const canRunCommand =
+        command &&
+        (!isTextEntryTarget(event.target) || isGlobalShortcut(event));
+      if (canRunCommand) {
+        event.preventDefault();
+        event.stopPropagation();
+        executeCommand(command);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        closeGlobalMenu();
+        closeQuickPick();
+        document.getElementById("confirm-modal")?.classList.add("hidden");
+      }
+    },
+    { capture: true },
+  );
 }
 
 function updateStatusBar(path: string) {

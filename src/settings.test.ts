@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_KEYBINDINGS,
   DEFAULT_SETTINGS,
+  commandForEvent,
   findKeybindingConflicts,
   getKeybindings,
   getScopedSettings,
@@ -95,6 +96,14 @@ describe("keybindings", () => {
 
     expect(keybindings).toEqual(DEFAULT_KEYBINDINGS);
     expect(keybindings).not.toBe(DEFAULT_KEYBINDINGS);
+  });
+
+  it("resolves Ctrl+S to the save command", () => {
+    expect(
+      commandForEvent(
+        new KeyboardEvent("keydown", { key: "s", ctrlKey: true }),
+      ),
+    ).toBe("save");
   });
 
   it("normalizes key aliases, rejects duplicate commands, and reports key conflicts", () => {
