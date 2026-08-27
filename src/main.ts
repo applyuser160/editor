@@ -31,6 +31,11 @@ import {
   type Keybinding,
   type SettingScope,
 } from "./settings";
+import {
+  buildGitGraphLayout,
+  type GitGraphCommit,
+  type GitGraphRow,
+} from "./git-graph";
 import { normalizeFilePath, pathForWorkspaceRead } from "./path-utils";
 
 interface FileEntry {
@@ -3809,6 +3814,185 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+const GIT_GRAPH_COLORS = [
+  "#4fc3f7",
+  "#e879f9",
+  "#a3e635",
+  "#fbbf24",
+  "#fb7185",
+  "#c084fc",
+];
+
+function gitGraphColor(lane: number): string {
+  return GIT_GRAPH_COLORS[lane % GIT_GRAPH_COLORS.length];
+}
+
+function graphSvg(row: GitGraphRow): string {
+  const laneWidth = 18;
+  const rowHeight = 38;
+  const nodeY = 16;
+  const laneCount = Math.max(row.laneCount, row.nextLaneCount, 1);
+  const width = laneCount * laneWidth + 8;
+  const laneX = (lane: number) => lane * laneWidth + 12;
+  const verticals = Array.from({ length: row.laneCount }, (_, lane) => {
+    const x = laneX(lane);
+    return `<path d="M ${x} 0 L ${x} ${rowHeight}" stroke="${gitGraphColor(lane)}" />`;
+  }).join("");
+  const parents = row.parentLanes
+    .map((parentLane) => {
+      const from = laneX(row.lane);
+      const to = laneX(parentLane);
+      return `<path d="M ${from} ${nodeY} C ${from} ${rowHeight - 6}, ${to} ${rowHeight - 6}, ${to} ${rowHeight}" stroke="${gitGraphColor(row.lane)}" />`;
+    })
+    .join("");
+  const parentless =
+    row.parentLanes.length === 0
+      ? `<path d="M ${laneX(row.lane)} ${nodeY} L ${laneX(row.lane)} ${rowHeight}" stroke="${gitGraphColor(row.lane)}" />`
+      : "";
+
+  return `<svg class="git-graph-svg" width="${width}" height="${rowHeight}" viewBox="0 0 ${width} ${rowHeight}" aria-hidden="true">${verticals}${parents}${parentless}<circle cx="${laneX(row.lane)}" cy="${nodeY}" r="4.5" fill="#1e1e1e" stroke="${gitGraphColor(row.lane)}" stroke-width="2.5" /></svg>`;
+}
+
+function formatGitGraphDate(date: string): string {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function closeGitGraph(): void {
+  document.getElementById("git-graph-overlay")?.remove();
+}
+
+function renderGitGraphRows(
+  container: HTMLElement,
+  commits: GitGraphCommit[],
+): void {
+  const layout = buildGitGraphLayout(commits);
+  if (layout.length === 0) {
+    container.innerHTML =
+      '<div class="git-graph-empty">表示できるコミット履歴がありません。</div>';
+    return;
+  }
+
+  container.innerHTML = "";
+  layout.forEach((row) => {
+    const item = document.createElement("div");
+    item.className = "git-graph-row";
+    item.title = `${row.commit.hash}\n${row.commit.subject}`;
+
+    const visual = document.createElement("div");
+    visual.className = "git-graph-visual";
+    visual.innerHTML = graphSvg(row);
+
+    const summary = document.createElement("div");
+    summary.className = "git-graph-summary";
+    const subject = document.createElement("div");
+    subject.className = "git-graph-subject";
+    subject.textContent = row.commit.subject || "(メッセージなし)";
+    summary.appendChild(subject);
+    if (row.commit.refs.length > 0) {
+      const refs = document.createElement("div");
+      refs.className = "git-graph-refs";
+      row.commit.refs.forEach((reference) => {
+        const badge = document.createElement("span");
+        badge.className = reference.startsWith("HEAD")
+          ? "git-graph-ref current"
+          : reference.startsWith("origin/")
+            ? "git-graph-ref remote"
+            : "git-graph-ref";
+        badge.textContent = reference;
+        refs.appendChild(badge);
+      });
+      summary.appendChild(refs);
+    }
+
+    const date = document.createElement("span");
+    date.className = "git-graph-date";
+    date.textContent = formatGitGraphDate(row.commit.date);
+    const author = document.createElement("span");
+    author.className = "git-graph-author";
+    author.textContent = row.commit.author;
+    const hash = document.createElement("button");
+    hash.className = "git-graph-hash";
+    hash.type = "button";
+    hash.textContent = row.commit.short_hash;
+    hash.title = "コミットハッシュをコピー";
+    hash.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(row.commit.hash);
+        showToast(`コミットハッシュをコピー: ${row.commit.short_hash}`, "info");
+      } catch {
+        showToast("コミットハッシュをコピーできませんでした", "error");
+      }
+    });
+
+    item.append(visual, summary, date, author, hash);
+    item.addEventListener("click", () =>
+      showStatusMessage(`${row.commit.short_hash}: ${row.commit.subject}`),
+    );
+    container.appendChild(item);
+  });
+}
+
+async function openGitGraph(): Promise<void> {
+  closeGitGraph();
+  const overlay = document.createElement("div");
+  overlay.id = "git-graph-overlay";
+  overlay.className = "git-graph-overlay";
+  overlay.innerHTML = `
+    <section class="git-graph-dialog" role="dialog" aria-modal="true" aria-labelledby="git-graph-title">
+      <header class="git-graph-header">
+        <div>
+          <h2 id="git-graph-title">Git Graph</h2>
+          <p>ローカルおよびリモートブランチを含むコミット履歴</p>
+        </div>
+        <div class="git-graph-actions">
+          <button type="button" id="btn-refresh-git-graph" title="履歴を再読み込み">↻ 更新</button>
+          <button type="button" id="btn-close-git-graph" title="Git Graph を閉じる">×</button>
+        </div>
+      </header>
+      <div class="git-graph-columns" aria-hidden="true">
+        <span>グラフ</span><span>コミット</span><span>日時</span><span>作者</span><span>ハッシュ</span>
+      </div>
+      <div id="git-graph-list" class="git-graph-list" aria-live="polite">Git 履歴を読み込み中...</div>
+    </section>
+  `;
+  document.body.appendChild(overlay);
+
+  const loadGraph = async () => {
+    const list = document.getElementById("git-graph-list");
+    if (!list) return;
+    list.textContent = "Git 履歴を読み込み中...";
+    try {
+      const commits = await invoke<GitGraphCommit[]>("git_get_graph", {
+        maxCount: 250,
+      });
+      renderGitGraphRows(list, commits);
+    } catch (error) {
+      list.innerHTML = `<div class="git-graph-empty">Git Graph を取得できませんでした: ${escapeHtml(String(error))}</div>`;
+    }
+  };
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeGitGraph();
+  });
+  document
+    .getElementById("btn-close-git-graph")
+    ?.addEventListener("click", closeGitGraph);
+  document
+    .getElementById("btn-refresh-git-graph")
+    ?.addEventListener("click", () => {
+      void loadGraph();
+    });
+  void loadGraph();
+}
+
 // 15. SCM (Git) Integration (Push/Pull/Stage/Unstage)
 async function renderScmView(container: HTMLElement) {
   try {
@@ -3824,6 +4008,7 @@ async function renderScmView(container: HTMLElement) {
           <button id="btn-git-pull" class="scm-icon-btn" title="変更を取得 (Pull)">↓</button>
           <button id="btn-git-push" class="scm-icon-btn" title="変更を送信 (Push)">↑</button>
           <button id="btn-git-sync" class="scm-icon-btn" title="同期 (Sync)">↻</button>
+          <button id="btn-git-graph" class="scm-icon-btn" title="Git Graph を開く">⑂</button>
         </div>
         <textarea id="git-commit-msg" class="scm-commit-message" rows="2" placeholder="メッセージ (Ctrl+Enter でコミット)"></textarea>
         <button id="btn-commit" class="scm-commit-btn">✓ コミット</button>
@@ -3883,6 +4068,10 @@ async function renderScmView(container: HTMLElement) {
           showToast(`Push 失敗: ${err}`, "error");
         }
       });
+
+    document.getElementById("btn-git-graph")?.addEventListener("click", () => {
+      void openGitGraph();
+    });
 
     document
       .getElementById("btn-git-sync")

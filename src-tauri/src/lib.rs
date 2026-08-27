@@ -68,6 +68,7 @@ pub fn run() {
             commands::search_in_workspace,
             commands::find_rust_stdlib_definition,
             commands::git_get_status,
+            commands::git_get_graph,
             commands::git_get_file_diff,
             commands::git_commit,
             commands::git_push,

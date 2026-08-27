@@ -61,6 +61,17 @@ pub struct GitFileDiff {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitGraphCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub date: String,
+    pub subject: String,
+    pub refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenVsxExtension {
     pub namespace: String,
     pub name: String,
@@ -898,6 +909,66 @@ pub async fn git_get_status(state: State<'_, WorkspaceState>) -> Result<GitStatu
     })
 }
 
+fn parse_git_graph_log(output: &[u8]) -> Vec<GitGraphCommit> {
+    String::from_utf8_lossy(output)
+        .split('\u{1e}')
+        .filter_map(|record| {
+            let fields: Vec<_> = record.trim().split('\u{1f}').collect();
+            if fields.len() != 7 || fields[0].is_empty() {
+                return None;
+            }
+            Some(GitGraphCommit {
+                hash: fields[0].to_string(),
+                parents: fields[1]
+                    .split_whitespace()
+                    .filter(|parent| !parent.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                short_hash: fields[2].to_string(),
+                author: fields[3].to_string(),
+                date: fields[4].to_string(),
+                refs: fields[5]
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|reference| !reference.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                subject: fields[6].to_string(),
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn git_get_graph(
+    state: State<'_, WorkspaceState>,
+    max_count: Option<usize>,
+) -> Result<Vec<GitGraphCommit>, String> {
+    let workspace_root = state.root();
+    let max_count = max_count.unwrap_or(200).clamp(1, 500).to_string();
+    let output = Command::new("git")
+        .current_dir(&workspace_root)
+        .args([
+            "log",
+            "--all",
+            "--topo-order",
+            "--date=iso-strict",
+            "--decorate=short",
+            "--pretty=format:%H%x1f%P%x1f%h%x1f%an%x1f%aI%x1f%D%x1f%s%x1e",
+            "--max-count",
+            &max_count,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to start git log: {}", error))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to read Git history: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(parse_git_graph_log(&output.stdout))
+}
+
 #[tauri::command]
 pub async fn git_get_file_diff(
     state: State<'_, WorkspaceState>,
@@ -1482,6 +1553,18 @@ mod tests {
             "✔ Found Vec definition at: {}:{}",
             match_res.file_path, match_res.line_number
         );
+    }
+
+    #[test]
+    fn parses_topological_git_graph_records_with_refs_and_parents() {
+        let log = b"0123456789abcdef\x1fparent-a parent-b\x1f0123456\x1fAlice\x1f2026-08-27T10:00:00+00:00\x1fHEAD -> main, origin/main\x1fMerge feature branch\x1e";
+        let commits = parse_git_graph_log(log);
+
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].short_hash, "0123456");
+        assert_eq!(commits[0].parents, vec!["parent-a", "parent-b"]);
+        assert_eq!(commits[0].refs, vec!["HEAD -> main", "origin/main"]);
+        assert_eq!(commits[0].subject, "Merge feature branch");
     }
 
     #[test]
