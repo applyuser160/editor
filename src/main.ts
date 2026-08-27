@@ -40,6 +40,11 @@ interface FileEntry {
   depth: number;
 }
 
+interface FilePreview {
+  mime_type: string;
+  data_url: string;
+}
+
 interface WorkspaceInfo {
   root: string;
   name: string;
@@ -2081,7 +2086,20 @@ async function createNewTerminalSession() {
     terminalSessions.push(session);
     switchTerminalSession(sessionId);
   } catch (err) {
-    term.writeln(`\x1b[31mFailed to spawn PTY: ${err}\x1b[0m`);
+    const message = String(err);
+    if (message.toLowerCase().includes("untrusted")) {
+      term.writeln(
+        "\x1b[33mこのワークスペースを信頼するとターミナルを起動できます。\x1b[0m",
+      );
+      if (await requestWorkspaceTrustForExecution("ターミナルを起動")) {
+        term.dispose();
+        sessionDiv.remove();
+        return createNewTerminalSession();
+      }
+    }
+    console.error("Failed to spawn PTY:", err);
+    term.writeln(`\x1b[31mFailed to spawn PTY: ${message}\x1b[0m`);
+    showToast(`ターミナルを起動できませんでした: ${message}`, "error");
   }
 }
 
@@ -2184,12 +2202,24 @@ async function initExtensionHost() {
 
 // 9. Open / Switch Files
 async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
-  if (!editor1) return;
+  if (!editor1) {
+    showToast(
+      "エディターの初期化中です。数秒後にもう一度ファイルを選択してください。",
+      "info",
+    );
+    return;
+  }
 
   const path = normalizePath(rawPath);
   const readPath = pathForWorkspaceRead(rawPath, workspaceRoot);
   const fileName = name?.split(/[/\\]/).pop() || path.split("/").pop() || path;
   const pane = targetPane ?? activeEditorPane;
+
+  if (isPreviewableImage(path)) {
+    await openImagePreview(path, fileName, pane);
+    return;
+  }
+  clearImagePreview(pane);
 
   if (openTabs.has(path)) {
     activeFilePath = path;
@@ -2279,13 +2309,59 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     applyStoredSettings();
     loadWorkspaceFiles();
     showStatusMessage(`開きました: ${fileName}`);
-  } catch (err: any) {
+  } catch (err: unknown) {
     const errMsg = String(err);
+    console.error(`Failed to open file '${path}':`, err);
     if (errMsg.includes("BINARY_FILE")) {
       showStatusMessage(`⚠️ バイナリファイルのため開けません: ${fileName}`);
+      showToast(
+        `バイナリファイルはテキストエディターで開けません: ${fileName}`,
+        "info",
+      );
     } else {
-      showStatusMessage(`エラー: ファイルを開けませんでした (${err})`);
+      showStatusMessage(`エラー: ファイルを開けませんでした (${errMsg})`);
+      showToast(`ファイルを開けませんでした: ${fileName}`, "error");
     }
+  }
+}
+
+function isPreviewableImage(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|ico)$/i.test(path);
+}
+
+function clearImagePreview(pane: 1 | 2) {
+  const preview = document.getElementById(`image-preview-${pane}`);
+  preview?.remove();
+  const editorContainer = document.getElementById(`editor-container-${pane}`);
+  if (editorContainer) editorContainer.style.display = "block";
+}
+
+async function openImagePreview(path: string, fileName: string, pane: 1 | 2) {
+  try {
+    const preview = await invoke<FilePreview>("read_image_preview", { path });
+    clearImagePreview(pane);
+    const editorContainer = document.getElementById(`editor-container-${pane}`);
+    const editorPane = document.getElementById(`editor-pane-${pane}`);
+    if (!editorContainer || !editorPane)
+      throw new Error("エディタープレビュー領域が見つかりません");
+
+    editorContainer.style.display = "none";
+    const previewElement = document.createElement("div");
+    previewElement.id = `image-preview-${pane}`;
+    previewElement.style.cssText =
+      "display:flex; height:100%; align-items:center; justify-content:center; overflow:auto; background:#1e1e1e;";
+    const image = document.createElement("img");
+    image.alt = fileName;
+    image.src = preview.data_url;
+    image.style.cssText = "max-width:96%; max-height:96%; object-fit:contain;";
+    previewElement.appendChild(image);
+    editorPane.appendChild(previewElement);
+    activeFilePath = path;
+    updateStatusBar(path);
+    showStatusMessage(`プレビューを開きました: ${fileName}`);
+  } catch (error) {
+    console.error(`Failed to preview image '${path}':`, error);
+    showToast(`画像プレビューを開けませんでした: ${fileName}`, "error");
   }
 }
 
@@ -4760,21 +4836,30 @@ async function refreshWorkspaceState() {
   workspaceTrust = trust;
 }
 
+async function requestWorkspaceTrustForExecution(
+  action: string,
+): Promise<boolean> {
+  const trust =
+    workspaceTrust || (await invoke<WorkspaceTrust>("get_workspace_trust"));
+  if (trust.trusted) return true;
+  const approved = confirm(
+    `${action}にはワークスペースの信頼が必要です。信頼すると、プロジェクトのコマンド、タスク、言語サーバー、拡張機能を実行できます。信頼しますか？`,
+  );
+  if (!approved) return false;
+  workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
+    trusted: true,
+  });
+  updateWorkspaceDisplay({
+    root: workspaceRoot,
+    name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
+  });
+  showStatusMessage("ワークスペースを信頼しました");
+  return true;
+}
+
 async function confirmWorkspaceTrust() {
   if (workspaceTrust?.trusted) return;
-  const trusted = confirm(
-    "このフォルダーは未信頼です。ターミナル、タスク、言語サーバー、拡張機能の実行はブロックされています。信頼しますか？",
-  );
-  if (trusted) {
-    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
-      trusted: true,
-    });
-    updateWorkspaceDisplay({
-      root: workspaceRoot,
-      name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
-    });
-    showStatusMessage("ワークスペースを信頼しました");
-  }
+  await requestWorkspaceTrustForExecution("このワークスペースを開く");
 }
 
 async function switchWorkspace(workspace: WorkspaceInfo) {

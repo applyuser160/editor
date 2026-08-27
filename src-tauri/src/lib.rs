@@ -56,6 +56,7 @@ pub fn run() {
             commands::run_workspace_test_suite,
             commands::list_workspace_files,
             commands::read_file_content,
+            commands::read_image_preview,
             commands::write_file_content,
             commands::create_file,
             commands::create_directory,
