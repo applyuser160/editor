@@ -53,6 +53,13 @@ pub struct GitStatusResult {
     pub changed_files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct GitFileDiff {
+    pub path: String,
+    pub original: String,
+    pub modified: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenVsxExtension {
     pub namespace: String,
@@ -888,6 +895,49 @@ pub async fn git_get_status(state: State<'_, WorkspaceState>) -> Result<GitStatu
             branch_out
         },
         changed_files,
+    })
+}
+
+#[tauri::command]
+pub async fn git_get_file_diff(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<GitFileDiff, String> {
+    let workspace_root = state.root();
+    let full_path = state.resolve_path(&path)?;
+    let relative_path = full_path
+        .strip_prefix(&workspace_root)
+        .map_err(|_| "Git diff path is outside the workspace".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    let original_output = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["show", &format!("HEAD:{}", relative_path)])
+        .output()
+        .map_err(|error| format!("git show failed: {}", error))?;
+    let original_bytes = if original_output.status.success() {
+        original_output.stdout
+    } else {
+        Vec::new()
+    };
+    let modified_bytes = match std::fs::read(&full_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(format!("Failed to read {}: {}", path, error)),
+    };
+    if original_bytes.contains(&0) || modified_bytes.contains(&0) {
+        return Err("Binary files cannot be displayed in the text diff editor".to_string());
+    }
+    let original = String::from_utf8(original_bytes)
+        .map_err(|_| "The committed file content is not UTF-8 text".to_string())?;
+    let modified = String::from_utf8(modified_bytes)
+        .map_err(|_| "The working tree file content is not UTF-8 text".to_string())?;
+
+    Ok(GitFileDiff {
+        path: relative_path,
+        original,
+        modified,
     })
 }
 

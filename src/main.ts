@@ -101,6 +101,12 @@ interface GitStatusResult {
   changed_files: string[];
 }
 
+interface GitFileDiff {
+  path: string;
+  original: string;
+  modified: string;
+}
+
 interface ExtensionManifest {
   id: string;
   name: string;
@@ -157,6 +163,14 @@ let workspaceFolders: WorkspaceInfo[] = [];
 let workspaceTrust: WorkspaceTrust | null = null;
 let editor1: monaco.editor.IStandaloneCodeEditor | null = null;
 let editor2: monaco.editor.IStandaloneCodeEditor | null = null;
+const diffEditors = new Map<
+  1 | 2,
+  {
+    editor: monaco.editor.IStandaloneDiffEditor;
+    original: monaco.editor.ITextModel;
+    modified: monaco.editor.ITextModel;
+  }
+>();
 let activeEditorPane: 1 | 2 = 1;
 let pane1FilePath: string | null = "welcome.rs";
 let pane2FilePath: string | null = null;
@@ -2267,6 +2281,7 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     await openImagePreview(path, fileName, pane);
     return;
   }
+  clearGitDiffPreview(pane);
   clearImagePreview(pane);
 
   if (openTabs.has(path)) {
@@ -2370,6 +2385,71 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
       showStatusMessage(`エラー: ファイルを開けませんでした (${errMsg})`);
       showToast(`ファイルを開けませんでした: ${fileName}`, "error");
     }
+  }
+}
+
+function clearGitDiffPreview(pane: 1 | 2) {
+  const existing = diffEditors.get(pane);
+  if (existing) {
+    existing.editor.dispose();
+    existing.original.dispose();
+    existing.modified.dispose();
+    diffEditors.delete(pane);
+  }
+  document.getElementById(`git-diff-preview-${pane}`)?.remove();
+  const editorContainer = document.getElementById(`editor-container-${pane}`);
+  if (editorContainer) editorContainer.style.display = "block";
+}
+
+async function openGitDiff(rawPath: string) {
+  const pane = activeEditorPane;
+  const path = normalizePath(rawPath);
+  try {
+    const diff = await invoke<GitFileDiff>("git_get_file_diff", {
+      path: rawPath,
+    });
+    clearImagePreview(pane);
+    clearGitDiffPreview(pane);
+    const editorContainer = document.getElementById(`editor-container-${pane}`);
+    const editorPane = document.getElementById(`editor-pane-${pane}`);
+    if (!editorContainer || !editorPane) {
+      throw new Error("差分表示領域が見つかりません");
+    }
+
+    editorContainer.style.display = "none";
+    const host = document.createElement("div");
+    host.id = `git-diff-preview-${pane}`;
+    host.style.cssText = "width:100%; height:100%;";
+    editorPane.appendChild(host);
+
+    const language = getLanguageFromPath(diff.path);
+    const original = monaco.editor.createModel(
+      diff.original,
+      language,
+      monaco.Uri.parse(`git-original:///${encodeURIComponent(path)}`),
+    );
+    const modified = monaco.editor.createModel(
+      diff.modified,
+      language,
+      monaco.Uri.parse(`git-working:///${encodeURIComponent(path)}`),
+    );
+    const editor = monaco.editor.createDiffEditor(host, {
+      theme: "vscode-dark-plus",
+      readOnly: true,
+      originalEditable: false,
+      automaticLayout: true,
+      renderSideBySide: true,
+      minimap: { enabled: true },
+      scrollBeyondLastLine: false,
+    });
+    editor.setModel({ original, modified });
+    diffEditors.set(pane, { editor, original, modified });
+    activeFilePath = path;
+    updateStatusBar(path);
+    showStatusMessage(`差分を表示: ${diff.path}`);
+  } catch (error) {
+    console.error(`Failed to load Git diff for '${rawPath}':`, error);
+    showToast(`差分を表示できませんでした: ${rawPath}`, "error");
   }
 }
 
@@ -3803,7 +3883,7 @@ async function renderScmView(container: HTMLElement) {
         row
           .querySelector("span:nth-child(2)")
           ?.addEventListener("click", () => {
-            openFile(filePath, filePath.split("/").pop() || filePath);
+            openGitDiff(filePath);
           });
 
         row
