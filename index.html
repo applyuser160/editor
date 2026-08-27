@@ -12,7 +12,7 @@
     <div class="titlebar-left">
       <span class="app-icon">🦀</span>
       <span class="app-title">Oxide Editor</span>
-      <nav class="menu-bar" id="top-menu-bar">
+      <nav class="menu-bar" id="top-menu-bar" aria-label="メインメニュー">
         <button class="menu-btn" data-menu="file">ファイル (File)</button>
         <button class="menu-btn" data-menu="edit">編集 (Edit)</button>
         <button class="menu-btn" data-menu="selection">選択 (Selection)</button>
@@ -41,7 +41,7 @@
   <!-- 2. Main Workbench Container -->
   <div id="workbench">
     <!-- Activity Bar -->
-    <aside id="activity-bar">
+    <aside id="activity-bar" aria-label="アクティビティバー">
       <button class="activity-btn active" data-view="explorer" title="エクスプローラー (Ctrl+Shift+E)">📁</button>
       <button class="activity-btn" data-view="search" title="検索 (Ctrl+Shift+F)">🔍</button>
       <button class="activity-btn" data-view="scm" title="ソース管理 (Ctrl+Shift+G)">🌿</button>
@@ -52,7 +52,7 @@
     </aside>
 
     <!-- Side Bar -->
-    <aside id="sidebar">
+    <aside id="sidebar" aria-label="サイドバー">
       <div class="sidebar-header">
         <span id="sidebar-title">エクスプローラー</span>
         <div class="sidebar-actions" id="sidebar-header-actions">
@@ -68,7 +68,7 @@
     <div class="resizer horizontal" id="sidebar-resizer"></div>
 
     <!-- Main Editor & Terminal Area -->
-    <main id="main-area">
+    <main id="main-area" aria-label="エディターワークベンチ">
       <!-- Editor Part with 2D Grid Split Support -->
       <section id="editor-part">
         <div class="editor-header-row">
@@ -95,7 +95,7 @@
       <div class="resizer vertical" id="terminal-resizer"></div>
 
       <!-- Bottom Panel (Terminal) -->
-      <section id="panel-part">
+      <section id="panel-part" aria-label="下部パネル">
         <div class="panel-header">
           <div class="panel-header-tabs">
             <span class="panel-tab active" id="panel-tab-terminal">💻 ターミナル</span>
@@ -137,7 +137,7 @@
   </footer>
 
   <!-- 4. QuickPick Modal (Ctrl+P / Ctrl+Shift+P / Branch Switcher) -->
-  <div id="quickpick-modal" class="hidden">
+  <div id="quickpick-modal" class="hidden" role="dialog" aria-modal="true" aria-label="クイックオープン">
     <div class="quickpick-box">
       <div class="quickpick-input-wrapper">
         <span class="quickpick-icon">🔍</span>
