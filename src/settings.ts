@@ -108,27 +108,48 @@ function validateSettings(value: unknown): Partial<EditorSettings> {
     throw new Error("設定はJSONオブジェクトで指定してください");
   }
 
-  const supportedKeys = new Set<keyof EditorSettings>(["theme", "fontSize", "tabSize", "minimap"]);
-  const unsupportedKey = Object.keys(value).find((key) => !supportedKeys.has(key as keyof EditorSettings));
+  const supportedKeys = new Set<keyof EditorSettings>([
+    "theme",
+    "fontSize",
+    "tabSize",
+    "minimap",
+  ]);
+  const unsupportedKey = Object.keys(value).find(
+    (key) => !supportedKeys.has(key as keyof EditorSettings),
+  );
   if (unsupportedKey) {
     throw new Error(`未対応の設定項目です: ${unsupportedKey}`);
   }
 
   const settings: Partial<EditorSettings> = {};
   if (value.theme !== undefined) {
-    if (value.theme !== "vscode-dark-plus" && value.theme !== "vs" && value.theme !== "hc-black") {
-      throw new Error("themeにはvscode-dark-plus、vs、hc-blackのいずれかを指定してください");
+    if (
+      value.theme !== "vscode-dark-plus" &&
+      value.theme !== "vs" &&
+      value.theme !== "hc-black"
+    ) {
+      throw new Error(
+        "themeにはvscode-dark-plus、vs、hc-blackのいずれかを指定してください",
+      );
     }
     settings.theme = value.theme;
   }
   if (value.fontSize !== undefined) {
-    if (typeof value.fontSize !== "number" || value.fontSize < 10 || value.fontSize > 28) {
+    if (
+      typeof value.fontSize !== "number" ||
+      value.fontSize < 10 ||
+      value.fontSize > 28
+    ) {
       throw new Error("fontSizeには10から28までの数値を指定してください");
     }
     settings.fontSize = value.fontSize;
   }
   if (value.tabSize !== undefined) {
-    if (typeof value.tabSize !== "number" || value.tabSize < 2 || value.tabSize > 8) {
+    if (
+      typeof value.tabSize !== "number" ||
+      value.tabSize < 2 ||
+      value.tabSize > 8
+    ) {
       throw new Error("tabSizeには2から8までの数値を指定してください");
     }
     settings.tabSize = value.tabSize;
@@ -152,7 +173,11 @@ function readSettings(key: string): Partial<EditorSettings> {
   }
 }
 
-function settingsKey(scope: SettingScope, workspaceRoot: string, language: string): string {
+function settingsKey(
+  scope: SettingScope,
+  workspaceRoot: string,
+  language: string,
+): string {
   if (scope === "workspace") return workspaceSettingsKey(workspaceRoot);
   if (scope === "language") return languageSettingsKey(language);
   return USER_SETTINGS_KEY;
@@ -167,12 +192,16 @@ export function migrateLegacySettings(): void {
   const tabSize = Number(localStorage.getItem("oxide_tabSize"));
   const minimap = localStorage.getItem("oxide_minimap");
 
-  if (theme === "vscode-dark-plus" || theme === "vs" || theme === "hc-black") settings.theme = theme;
+  if (theme === "vscode-dark-plus" || theme === "vs" || theme === "hc-black")
+    settings.theme = theme;
   if (fontSize >= 10 && fontSize <= 28) settings.fontSize = fontSize;
   if (tabSize >= 2 && tabSize <= 8) settings.tabSize = tabSize;
   if (minimap !== null) settings.minimap = minimap !== "false";
 
-  if (Object.keys(settings).length > 0 && localStorage.getItem(USER_SETTINGS_KEY) === null) {
+  if (
+    Object.keys(settings).length > 0 &&
+    localStorage.getItem(USER_SETTINGS_KEY) === null
+  ) {
     localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(settings));
   }
   localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
@@ -193,11 +222,17 @@ export function saveScopedSettings(
   value: unknown,
 ): Partial<EditorSettings> {
   const settings = validateSettings(value);
-  localStorage.setItem(settingsKey(scope, workspaceRoot, language), JSON.stringify(settings, null, 2));
+  localStorage.setItem(
+    settingsKey(scope, workspaceRoot, language),
+    JSON.stringify(settings, null, 2),
+  );
   return settings;
 }
 
-export function resolveSettings(workspaceRoot: string, language: string): EditorSettings {
+export function resolveSettings(
+  workspaceRoot: string,
+  language: string,
+): EditorSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...getScopedSettings("user", workspaceRoot, language),
@@ -223,8 +258,14 @@ export function normalizeKeybinding(key: string): string {
     .split("+")
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => aliases[part.toLowerCase()] || (part.length === 1 ? part.toUpperCase() : part));
-  const uniqueModifiers = modifiers.filter((modifier) => parts.includes(modifier));
+    .map(
+      (part) =>
+        aliases[part.toLowerCase()] ||
+        (part.length === 1 ? part.toUpperCase() : part),
+    );
+  const uniqueModifiers = modifiers.filter((modifier) =>
+    parts.includes(modifier),
+  );
   const mainKey = parts.find((part) => !modifiers.includes(part));
   return [...uniqueModifiers, ...(mainKey ? [mainKey] : [])].join("+");
 }
@@ -235,7 +276,11 @@ function validateKeybindings(value: unknown): Keybinding[] {
   }
 
   const keybindings = value.map((item) => {
-    if (!isRecord(item) || typeof item.command !== "string" || typeof item.key !== "string") {
+    if (
+      !isRecord(item) ||
+      typeof item.command !== "string" ||
+      typeof item.key !== "string"
+    ) {
       throw new Error("各キーバインドにはcommandとkeyが必要です");
     }
     if (!(item.command in COMMAND_LABELS)) {
@@ -248,7 +293,8 @@ function validateKeybindings(value: unknown): Keybinding[] {
 
   const commands = new Set<string>();
   keybindings.forEach((binding) => {
-    if (commands.has(binding.command)) throw new Error(`コマンドが重複しています: ${binding.command}`);
+    if (commands.has(binding.command))
+      throw new Error(`コマンドが重複しています: ${binding.command}`);
     commands.add(binding.command);
   });
   return keybindings;
@@ -256,7 +302,8 @@ function validateKeybindings(value: unknown): Keybinding[] {
 
 export function getKeybindings(): Keybinding[] {
   const stored = readJson(KEYBINDINGS_KEY);
-  if (stored === null) return DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
+  if (stored === null)
+    return DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
   try {
     return validateKeybindings(stored);
   } catch {
@@ -275,7 +322,9 @@ export function resetKeybindings(): Keybinding[] {
   return getKeybindings();
 }
 
-export function findKeybindingConflicts(keybindings: Keybinding[]): KeybindingConflict[] {
+export function findKeybindingConflicts(
+  keybindings: Keybinding[],
+): KeybindingConflict[] {
   const commandsByKey = new Map<string, string[]>();
   keybindings.forEach((binding) => {
     const key = normalizeKeybinding(binding.key);
@@ -297,7 +346,12 @@ export function keybindingFromEvent(event: KeyboardEvent): string {
 
   const modifierKeys = new Set(["Control", "Shift", "Alt", "Meta"]);
   if (!modifierKeys.has(event.key)) {
-    const key = event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    const key =
+      event.key === " "
+        ? "Space"
+        : event.key.length === 1
+          ? event.key.toUpperCase()
+          : event.key;
     modifiers.push(key);
   }
   return normalizeKeybinding(modifiers.join("+"));
@@ -305,18 +359,27 @@ export function keybindingFromEvent(event: KeyboardEvent): string {
 
 export function commandForEvent(event: KeyboardEvent): string | null {
   const pressed = keybindingFromEvent(event);
-  return getKeybindings().find((binding) => normalizeKeybinding(binding.key) === pressed)?.command || null;
+  return (
+    getKeybindings().find(
+      (binding) => normalizeKeybinding(binding.key) === pressed,
+    )?.command || null
+  );
 }
 
 function validateProfile(value: unknown): EditorProfile {
-  if (!isRecord(value) || value.version !== 1 || typeof value.name !== "string") {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    typeof value.name !== "string"
+  ) {
     throw new Error("対応していないプロファイル形式です");
   }
   const settings = validateSettings(value.settings);
   const keybindings = validateKeybindings(value.keybindings);
   const extensions = Array.isArray(value.extensions)
     ? value.extensions.map((extension) => {
-        if (typeof extension !== "string") throw new Error("拡張機能IDには文字列を指定してください");
+        if (typeof extension !== "string")
+          throw new Error("拡張機能IDには文字列を指定してください");
         return extension;
       })
     : [];
@@ -324,7 +387,10 @@ function validateProfile(value: unknown): EditorProfile {
     version: 1,
     id: typeof value.id === "string" ? value.id : crypto.randomUUID(),
     name: value.name.trim() || "Imported Profile",
-    createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString(),
+    createdAt:
+      typeof value.createdAt === "string"
+        ? value.createdAt
+        : new Date().toISOString(),
     settings,
     keybindings,
     extensions: [...new Set(extensions)].sort(),
@@ -347,7 +413,10 @@ function storeProfiles(profiles: EditorProfile[]): void {
   localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles, null, 2));
 }
 
-export function createProfile(name: string, extensions: string[]): EditorProfile {
+export function createProfile(
+  name: string,
+  extensions: string[],
+): EditorProfile {
   const profile: EditorProfile = {
     version: 1,
     id: crypto.randomUUID(),
@@ -367,8 +436,14 @@ export function deleteProfile(id: string): void {
 }
 
 export function applyProfile(profile: EditorProfile): void {
-  localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(profile.settings, null, 2));
-  localStorage.setItem(KEYBINDINGS_KEY, JSON.stringify(profile.keybindings, null, 2));
+  localStorage.setItem(
+    USER_SETTINGS_KEY,
+    JSON.stringify(profile.settings, null, 2),
+  );
+  localStorage.setItem(
+    KEYBINDINGS_KEY,
+    JSON.stringify(profile.keybindings, null, 2),
+  );
 }
 
 export function exportProfile(profile: EditorProfile): string {
@@ -377,7 +452,9 @@ export function exportProfile(profile: EditorProfile): string {
 
 export function importProfile(json: string): EditorProfile {
   const profile = validateProfile(JSON.parse(json) as unknown);
-  const profiles = getProfiles().filter((existing) => existing.id !== profile.id);
+  const profiles = getProfiles().filter(
+    (existing) => existing.id !== profile.id,
+  );
   storeProfiles([...profiles, profile]);
   return profile;
 }

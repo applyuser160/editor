@@ -345,6 +345,22 @@ fn is_builtin_extension(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    fn vsix_with_entries(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut output = Cursor::new(Vec::new());
+        {
+            let mut archive = zip::ZipWriter::new(&mut output);
+            let options = SimpleFileOptions::default();
+            for (path, content) in entries {
+                archive.start_file(path, options).unwrap();
+                archive.write_all(content.as_bytes()).unwrap();
+            }
+            archive.finish().unwrap();
+        }
+        output.into_inner()
+    }
 
     #[test]
     fn validates_manifest_identifiers() {
@@ -356,5 +372,26 @@ mod tests {
     fn rejects_oversized_or_empty_vsix() {
         assert!(parse_vsix_manifest(&[]).is_err());
         assert!(parse_vsix_manifest(&vec![0; MAX_VSIX_BYTES + 1]).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_archives_and_missing_package_manifests() {
+        assert!(parse_vsix_manifest(b"not an archive").is_err());
+        let archive = vsix_with_entries(&[("README.md", "no extension manifest")]);
+        assert!(parse_vsix_manifest(&archive).is_err());
+    }
+
+    #[test]
+    fn rejects_archive_paths_that_escape_the_extension_directory() {
+        let archive = vsix_with_entries(&[("../outside.txt", "unsafe")]);
+        let destination =
+            std::env::temp_dir().join(format!("oxide-editor-vsix-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&destination);
+
+        let result = extract_vsix(&archive, &destination);
+
+        assert!(result.is_err());
+        assert!(!destination.join("outside.txt").exists());
+        let _ = fs::remove_dir_all(destination);
     }
 }

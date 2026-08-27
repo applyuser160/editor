@@ -43,8 +43,13 @@ pub fn load_configurations(workspace_root: &Path) -> Result<Vec<DebugConfigurati
         }
         let content = std::fs::read_to_string(&path)
             .map_err(|error| format!("Could not read {}: {}", path.display(), error))?;
-        let file: LaunchFile = serde_json::from_str(&content)
-            .map_err(|error| format!("Invalid debug configuration in {}: {}", path.display(), error))?;
+        let file: LaunchFile = serde_json::from_str(&content).map_err(|error| {
+            format!(
+                "Invalid debug configuration in {}: {}",
+                path.display(),
+                error
+            )
+        })?;
         for config in &file.configurations {
             validate_configuration(config, workspace_root)?;
         }
@@ -67,7 +72,9 @@ pub fn validate_configuration(
             configuration.adapter_type
         ));
     }
-    if configuration.request == DebugRequest::Launch && configuration.program.as_deref().unwrap_or("").is_empty() {
+    if configuration.request == DebugRequest::Launch
+        && configuration.program.as_deref().unwrap_or("").is_empty()
+    {
         return Err("A launch configuration requires a program path".to_string());
     }
     if let Some(program) = &configuration.program {
@@ -79,7 +86,10 @@ pub fn validate_configuration(
     if let Some(cwd) = &configuration.cwd {
         let path = resolve_workspace_path(workspace_root, cwd)?;
         if !path.is_dir() {
-            return Err(format!("Debug working directory does not exist: {}", path.display()));
+            return Err(format!(
+                "Debug working directory does not exist: {}",
+                path.display()
+            ));
         }
     }
     Ok(())
@@ -122,18 +132,42 @@ fn resolve_workspace_path(workspace_root: &Path, raw_path: &str) -> Result<PathB
 mod tests {
     use super::*;
 
-    #[test]
-    fn rejects_unsupported_adapter() {
-        let root = std::env::current_dir().unwrap();
-        let config = DebugConfiguration {
-            name: "Node".to_string(),
-            adapter_type: "node".to_string(),
-            request: DebugRequest::Attach,
+    fn configuration(request: DebugRequest) -> DebugConfiguration {
+        DebugConfiguration {
+            name: "Test configuration".to_string(),
+            adapter_type: "python".to_string(),
+            request,
             program: None,
             cwd: None,
             args: Vec::new(),
             env: BTreeMap::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_adapter() {
+        let root = std::env::current_dir().unwrap();
+        let mut config = configuration(DebugRequest::Attach);
+        config.adapter_type = "node".to_string();
         assert!(validate_configuration(&config, &root).is_err());
+    }
+
+    #[test]
+    fn rejects_launch_configurations_without_a_program() {
+        let root = std::env::current_dir().unwrap();
+        let error =
+            validate_configuration(&configuration(DebugRequest::Launch), &root).unwrap_err();
+        assert_eq!(error, "A launch configuration requires a program path");
+    }
+
+    #[test]
+    fn rejects_debug_paths_outside_the_workspace() {
+        let root = std::env::current_dir().unwrap();
+        let mut config = configuration(DebugRequest::Attach);
+        config.cwd = Some("/tmp".to_string());
+
+        let error = validate_configuration(&config, &root).unwrap_err();
+
+        assert_eq!(error, "Debug configuration path is outside the workspace");
     }
 }

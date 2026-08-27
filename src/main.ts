@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import {
+  open as openDialog,
+  save as saveDialog,
+} from "@tauri-apps/plugin-dialog";
 import * as monaco from "monaco-editor";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -151,7 +154,10 @@ let activeTerminalSessionId: number | null = null;
 let nextTerminalId = 1;
 
 function getActiveTerminalSession(): TerminalSession | undefined {
-  return terminalSessions.find((s) => s.id === activeTerminalSessionId) || terminalSessions[0];
+  return (
+    terminalSessions.find((s) => s.id === activeTerminalSessionId) ||
+    terminalSessions[0]
+  );
 }
 
 let searchCaseSensitive = false;
@@ -162,7 +168,13 @@ let isTopMenuOpen = false;
 let currentOpenMenuKey: string | null = null;
 let activeSubmenuEl: HTMLElement | null = null;
 
-let quickPickItems: Array<{ id: string; title: string; subtitle?: string; shortcut?: string; action: () => void }> = [];
+let quickPickItems: Array<{
+  id: string;
+  title: string;
+  subtitle?: string;
+  shortcut?: string;
+  action: () => void;
+}> = [];
 let quickPickSelectedIndex = 0;
 
 const openTabs: Map<string, OpenTab> = new Map();
@@ -252,19 +264,21 @@ async function initLanguageServerIntegration() {
     const uriStr = params.uri;
     openTabs.forEach((tab) => {
       if (uriStr.endsWith(tab.path.replace(/\\/g, "/"))) {
-        const markers: monaco.editor.IMarkerData[] = params.diagnostics.map((d: any) => ({
-          severity:
-            d.severity === 1
-              ? monaco.MarkerSeverity.Error
-              : d.severity === 2
-              ? monaco.MarkerSeverity.Warning
-              : monaco.MarkerSeverity.Info,
-          message: d.message,
-          startLineNumber: (d.range?.start?.line ?? 0) + 1,
-          startColumn: (d.range?.start?.character ?? 0) + 1,
-          endLineNumber: (d.range?.end?.line ?? 0) + 1,
-          endColumn: (d.range?.end?.character ?? 0) + 1,
-        }));
+        const markers: monaco.editor.IMarkerData[] = params.diagnostics.map(
+          (d: any) => ({
+            severity:
+              d.severity === 1
+                ? monaco.MarkerSeverity.Error
+                : d.severity === 2
+                  ? monaco.MarkerSeverity.Warning
+                  : monaco.MarkerSeverity.Info,
+            message: d.message,
+            startLineNumber: (d.range?.start?.line ?? 0) + 1,
+            startColumn: (d.range?.start?.character ?? 0) + 1,
+            endLineNumber: (d.range?.end?.line ?? 0) + 1,
+            endColumn: (d.range?.end?.character ?? 0) + 1,
+          }),
+        );
         monaco.editor.setModelMarkers(tab.model, "lsp", markers);
         updateStatusMarkersCount(markers);
       }
@@ -283,11 +297,16 @@ async function initLanguageServerIntegration() {
             method: "textDocument/hover",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
             },
           });
           if (res && res.contents) {
-            const rawContent = Array.isArray(res.contents) ? res.contents.map((c: any) => c.value || c).join("\n\n") : res.contents.value || res.contents;
+            const rawContent = Array.isArray(res.contents)
+              ? res.contents.map((c: any) => c.value || c).join("\n\n")
+              : res.contents.value || res.contents;
             return {
               contents: [{ value: rawContent }],
             };
@@ -316,24 +335,31 @@ async function initLanguageServerIntegration() {
             method: "textDocument/completion",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
             },
           });
           if (res) {
             const items = Array.isArray(res) ? res : res.items || [];
-            const suggestions: monaco.languages.CompletionItem[] = items.map((item: any) => ({
-              label: item.label,
-              kind: mapLspKindToMonaco(item.kind),
-              detail: item.detail,
-              documentation: item.documentation?.value || item.documentation,
-              insertText: item.insertText || item.label,
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: position.column - (model.getWordUntilPosition(position).word.length),
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
-            }));
+            const suggestions: monaco.languages.CompletionItem[] = items.map(
+              (item: any) => ({
+                label: item.label,
+                kind: mapLspKindToMonaco(item.kind),
+                detail: item.detail,
+                documentation: item.documentation?.value || item.documentation,
+                insertText: item.insertText || item.label,
+                range: {
+                  startLineNumber: position.lineNumber,
+                  startColumn:
+                    position.column -
+                    model.getWordUntilPosition(position).word.length,
+                  endLineNumber: position.lineNumber,
+                  endColumn: position.column,
+                },
+              }),
+            );
             return { suggestions };
           }
         } catch (e) {
@@ -357,7 +383,7 @@ async function initLanguageServerIntegration() {
           true,
           false,
           null,
-          true
+          true,
         );
 
         if (currentMatches.length > 0) {
@@ -376,14 +402,18 @@ async function initLanguageServerIntegration() {
             method: "textDocument/definition",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
             },
           });
 
           if (res) {
             const loc = Array.isArray(res) ? res[0] : res;
             const targetUri = loc?.uri || loc?.targetUri;
-            const targetRange = loc?.range || loc?.targetSelectionRange || loc?.targetRange;
+            const targetRange =
+              loc?.range || loc?.targetSelectionRange || loc?.targetRange;
             if (targetUri && targetRange) {
               const rawPath = targetUri.replace(/^file:\/\/\/?/, "");
               const targetPath = decodeURIComponent(rawPath);
@@ -395,7 +425,9 @@ async function initLanguageServerIntegration() {
                   (targetRange.start?.line ?? 0) + 1,
                   (targetRange.start?.character ?? 0) + 1,
                   (targetRange.end?.line ?? targetRange.start?.line ?? 0) + 1,
-                  (targetRange.end?.character ?? targetRange.start?.character ?? 0) + 1
+                  (targetRange.end?.character ??
+                    targetRange.start?.character ??
+                    0) + 1,
                 ),
               };
             }
@@ -426,12 +458,20 @@ async function initLanguageServerIntegration() {
           });
 
           if (defMatch) {
-            await openFile(defMatch.file_path, defMatch.file_path.split("/").pop() || defMatch.file_path);
+            await openFile(
+              defMatch.file_path,
+              defMatch.file_path.split("/").pop() || defMatch.file_path,
+            );
             const targetTab = openTabs.get(normalizePath(defMatch.file_path));
             if (targetTab) {
               return {
                 uri: targetTab.model.uri,
-                range: new monaco.Range(defMatch.line_number, 1, defMatch.line_number, targetSymbol.length + 1),
+                range: new monaco.Range(
+                  defMatch.line_number,
+                  1,
+                  defMatch.line_number,
+                  targetSymbol.length + 1,
+                ),
               };
             }
           }
@@ -462,7 +502,7 @@ async function initLanguageServerIntegration() {
                 e.range.start.line + 1,
                 e.range.start.character + 1,
                 e.range.end.line + 1,
-                e.range.end.character + 1
+                e.range.end.character + 1,
               ),
               text: e.newText,
             }));
@@ -485,7 +525,10 @@ async function initLanguageServerIntegration() {
             method: "textDocument/signatureHelp",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
             },
           });
           if (res && res.signatures && res.signatures.length > 0) {
@@ -494,7 +537,8 @@ async function initLanguageServerIntegration() {
                 signatures: res.signatures.map((s: any) => ({
                   label: s.label,
                   documentation: s.documentation?.value || s.documentation,
-                  parameters: s.parameters?.map((p: any) => ({ label: p.label })) || [],
+                  parameters:
+                    s.parameters?.map((p: any) => ({ label: p.label })) || [],
                 })),
                 activeSignature: res.activeSignature || 0,
                 activeParameter: res.activeParameter || 0,
@@ -518,8 +562,14 @@ async function initLanguageServerIntegration() {
             params: {
               textDocument: { uri },
               range: {
-                start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
-                end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+                start: {
+                  line: range.startLineNumber - 1,
+                  character: range.startColumn - 1,
+                },
+                end: {
+                  line: range.endLineNumber - 1,
+                  character: range.endColumn - 1,
+                },
               },
               context: { diagnostics: [] },
             },
@@ -549,7 +599,10 @@ async function initLanguageServerIntegration() {
             method: "textDocument/rename",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
               newName,
             },
           });
@@ -564,7 +617,7 @@ async function initLanguageServerIntegration() {
                       te.range.start.line + 1,
                       te.range.start.character + 1,
                       te.range.end.line + 1,
-                      te.range.end.character + 1
+                      te.range.end.character + 1,
                     ),
                     text: te.newText,
                   },
@@ -589,7 +642,10 @@ async function initLanguageServerIntegration() {
             method: "textDocument/references",
             params: {
               textDocument: { uri },
-              position: { line: position.lineNumber - 1, character: position.column - 1 },
+              position: {
+                line: position.lineNumber - 1,
+                character: position.column - 1,
+              },
               context: { includeDeclaration: true },
             },
           });
@@ -600,7 +656,7 @@ async function initLanguageServerIntegration() {
                 r.range.start.line + 1,
                 r.range.start.character + 1,
                 r.range.end.line + 1,
-                r.range.end.character + 1
+                r.range.end.character + 1,
               ),
             }));
           }
@@ -613,19 +669,32 @@ async function initLanguageServerIntegration() {
 
 function mapLspKindToMonaco(kind: number): monaco.languages.CompletionItemKind {
   switch (kind) {
-    case 1: return monaco.languages.CompletionItemKind.Text;
-    case 2: return monaco.languages.CompletionItemKind.Method;
-    case 3: return monaco.languages.CompletionItemKind.Function;
-    case 4: return monaco.languages.CompletionItemKind.Constructor;
-    case 5: return monaco.languages.CompletionItemKind.Field;
-    case 6: return monaco.languages.CompletionItemKind.Variable;
-    case 7: return monaco.languages.CompletionItemKind.Class;
-    case 8: return monaco.languages.CompletionItemKind.Interface;
-    case 9: return monaco.languages.CompletionItemKind.Module;
-    case 10: return monaco.languages.CompletionItemKind.Property;
-    case 14: return monaco.languages.CompletionItemKind.Keyword;
-    case 15: return monaco.languages.CompletionItemKind.Snippet;
-    default: return monaco.languages.CompletionItemKind.Text;
+    case 1:
+      return monaco.languages.CompletionItemKind.Text;
+    case 2:
+      return monaco.languages.CompletionItemKind.Method;
+    case 3:
+      return monaco.languages.CompletionItemKind.Function;
+    case 4:
+      return monaco.languages.CompletionItemKind.Constructor;
+    case 5:
+      return monaco.languages.CompletionItemKind.Field;
+    case 6:
+      return monaco.languages.CompletionItemKind.Variable;
+    case 7:
+      return monaco.languages.CompletionItemKind.Class;
+    case 8:
+      return monaco.languages.CompletionItemKind.Interface;
+    case 9:
+      return monaco.languages.CompletionItemKind.Module;
+    case 10:
+      return monaco.languages.CompletionItemKind.Property;
+    case 14:
+      return monaco.languages.CompletionItemKind.Keyword;
+    case 15:
+      return monaco.languages.CompletionItemKind.Snippet;
+    default:
+      return monaco.languages.CompletionItemKind.Text;
   }
 }
 
@@ -648,9 +717,15 @@ async function ensureLspServerStarted(lang: string) {
 }
 
 function updateStatusMarkersCount(markers: monaco.editor.IMarkerData[]) {
-  const errors = markers.filter((m) => m.severity === monaco.MarkerSeverity.Error).length;
-  const warnings = markers.filter((m) => m.severity === monaco.MarkerSeverity.Warning).length;
-  const statusMarkersEl = document.querySelector("#statusbar .statusbar-left span:nth-child(2)");
+  const errors = markers.filter(
+    (m) => m.severity === monaco.MarkerSeverity.Error,
+  ).length;
+  const warnings = markers.filter(
+    (m) => m.severity === monaco.MarkerSeverity.Warning,
+  ).length;
+  const statusMarkersEl = document.querySelector(
+    "#statusbar .statusbar-left span:nth-child(2)",
+  );
   if (statusMarkersEl) {
     statusMarkersEl.textContent = `⚠️ ${warnings}  ❌ ${errors}`;
   }
@@ -821,7 +896,9 @@ async function performGoToDefinition() {
 
   const word = model.getWordAtPosition(position);
   if (!word) {
-    showStatusMessage("定義に移動: カーソル位置にシンボル（識別子）がありません");
+    showStatusMessage(
+      "定義に移動: カーソル位置にシンボル（識別子）がありません",
+    );
     return;
   }
 
@@ -835,15 +912,20 @@ async function performGoToDefinition() {
     true,
     false,
     null,
-    true
+    true,
   );
 
   if (currentMatches.length > 0) {
     const match = currentMatches[0];
     editor1.revealRangeInCenter(match.range);
-    editor1.setPosition({ lineNumber: match.range.startLineNumber, column: match.range.startColumn });
+    editor1.setPosition({
+      lineNumber: match.range.startLineNumber,
+      column: match.range.startColumn,
+    });
     editor1.setSelection(match.range);
-    showStatusMessage(`📍 定義へジャンプ完了: '${targetSymbol}' (${match.range.startLineNumber}行目)`);
+    showStatusMessage(
+      `📍 定義へジャンプ完了: '${targetSymbol}' (${match.range.startLineNumber}行目)`,
+    );
     return;
   }
 
@@ -856,14 +938,18 @@ async function performGoToDefinition() {
       method: "textDocument/definition",
       params: {
         textDocument: { uri },
-        position: { line: position.lineNumber - 1, character: position.column - 1 },
+        position: {
+          line: position.lineNumber - 1,
+          character: position.column - 1,
+        },
       },
     });
 
     if (res) {
       const loc = Array.isArray(res) ? res[0] : res;
       const targetUri = loc?.uri || loc?.targetUri;
-      const targetRange = loc?.range || loc?.targetSelectionRange || loc?.targetRange;
+      const targetRange =
+        loc?.range || loc?.targetSelectionRange || loc?.targetRange;
       if (targetUri && targetRange) {
         const rawPath = targetUri.replace(/^file:\/\/\/?/, "");
         const targetPath = decodeURIComponent(rawPath);
@@ -872,13 +958,18 @@ async function performGoToDefinition() {
         if (editor1) {
           const line = (targetRange.start?.line ?? 0) + 1;
           const col = (targetRange.start?.character ?? 0) + 1;
-          const endLine = (targetRange.end?.line ?? targetRange.start?.line ?? 0) + 1;
-          const endCol = (targetRange.end?.character ?? targetRange.start?.character ?? 0) + 1;
+          const endLine =
+            (targetRange.end?.line ?? targetRange.start?.line ?? 0) + 1;
+          const endCol =
+            (targetRange.end?.character ?? targetRange.start?.character ?? 0) +
+            1;
           const range = new monaco.Range(line, col, endLine, endCol);
           editor1.revealRangeInCenter(range);
           editor1.setPosition({ lineNumber: line, column: col });
           editor1.setSelection(range);
-          showStatusMessage(`📍 定義へジャンプ完了 (LSP): '${targetSymbol}' -> ${fileName}:${line}`);
+          showStatusMessage(
+            `📍 定義へジャンプ完了 (LSP): '${targetSymbol}' -> ${fileName}:${line}`,
+          );
           return;
         }
       }
@@ -889,10 +980,13 @@ async function performGoToDefinition() {
 
   // 3. Fallback: Search workspace
   try {
-    const workspaceMatches = await invoke<SearchMatch[]>("search_in_workspace", {
-      query: targetSymbol,
-      caseSensitive: true,
-    });
+    const workspaceMatches = await invoke<SearchMatch[]>(
+      "search_in_workspace",
+      {
+        query: targetSymbol,
+        caseSensitive: true,
+      },
+    );
 
     const defMatch = workspaceMatches.find((m) => {
       const line = m.line_text;
@@ -909,11 +1003,16 @@ async function performGoToDefinition() {
     });
 
     if (defMatch) {
-      await openFile(defMatch.file_path, defMatch.file_path.split("/").pop() || defMatch.file_path);
+      await openFile(
+        defMatch.file_path,
+        defMatch.file_path.split("/").pop() || defMatch.file_path,
+      );
       if (editor1) {
         editor1.revealLineInCenter(defMatch.line_number);
         editor1.setPosition({ lineNumber: defMatch.line_number, column: 1 });
-        showStatusMessage(`📍 定義へジャンプ完了: '${targetSymbol}' -> ${defMatch.file_path}:${defMatch.line_number}`);
+        showStatusMessage(
+          `📍 定義へジャンプ完了: '${targetSymbol}' -> ${defMatch.file_path}:${defMatch.line_number}`,
+        );
       }
       return;
     }
@@ -985,145 +1084,472 @@ function renderMenuLevel(items: MenuItemDef[], container: HTMLElement) {
 function setupVSCodeMenus() {
   const menuDefs: Record<string, MenuItemDef[]> = {
     file: [
-      { label: "新しいテキスト ファイル", shortcut: "Ctrl+N", action: () => document.getElementById("btn-new-file")?.click() },
-      { label: "新しいファイル...", shortcut: "Ctrl+Alt+Win+N", action: () => document.getElementById("btn-new-file")?.click() },
-      { label: "新しいウィンドウ", shortcut: "Ctrl+Shift+N", action: () => showStatusMessage("新しいウィンドウを開きます") },
+      {
+        label: "新しいテキスト ファイル",
+        shortcut: "Ctrl+N",
+        action: () => document.getElementById("btn-new-file")?.click(),
+      },
+      {
+        label: "新しいファイル...",
+        shortcut: "Ctrl+Alt+Win+N",
+        action: () => document.getElementById("btn-new-file")?.click(),
+      },
+      {
+        label: "新しいウィンドウ",
+        shortcut: "Ctrl+Shift+N",
+        action: () => showStatusMessage("新しいウィンドウを開きます"),
+      },
       {
         label: "プロファイルを含む新しいウィンドウ",
         submenu: [
-          { label: "既定 (Default)", action: () => showStatusMessage("既定プロファイルで起動") },
+          {
+            label: "既定 (Default)",
+            action: () => showStatusMessage("既定プロファイルで起動"),
+          },
         ],
       },
       { type: "separator" },
-      { label: "ファイルを開く...", shortcut: "Ctrl+O", action: () => openNativeFileDialog() },
-      { label: "フォルダーを開く...", shortcut: "Ctrl+K Ctrl+O", action: () => openNativeFolderDialog() },
-      { label: "ファイルでワークスペースを開く...", action: () => openNativeFileDialog() },
+      {
+        label: "ファイルを開く...",
+        shortcut: "Ctrl+O",
+        action: () => openNativeFileDialog(),
+      },
+      {
+        label: "フォルダーを開く...",
+        shortcut: "Ctrl+K Ctrl+O",
+        action: () => openNativeFolderDialog(),
+      },
+      {
+        label: "ファイルでワークスペースを開く...",
+        action: () => openNativeFileDialog(),
+      },
       {
         label: "最近使用した項目を開く",
         submenu: [
-          { label: "welcome.rs", action: () => openFile("welcome.rs", "welcome.rs") },
-          { label: "Cargo.toml", action: () => openFile("src-tauri/Cargo.toml", "Cargo.toml") },
-          { label: "package.json", action: () => openFile("package.json", "package.json") },
+          {
+            label: "welcome.rs",
+            action: () => openFile("welcome.rs", "welcome.rs"),
+          },
+          {
+            label: "Cargo.toml",
+            action: () => openFile("src-tauri/Cargo.toml", "Cargo.toml"),
+          },
+          {
+            label: "package.json",
+            action: () => openFile("package.json", "package.json"),
+          },
         ],
       },
       { type: "separator" },
-      { label: "フォルダーをワークスペースに追加...", action: () => document.getElementById("btn-new-folder")?.click() },
-      { label: "名前を付けてワークスペースを保存...", action: () => saveNativeFileDialog() },
-      { label: "ワークスペースを複製", shortcut: "Ctrl+W Ctrl+A", action: () => showStatusMessage("ワークスペースを複製しました") },
+      {
+        label: "フォルダーをワークスペースに追加...",
+        action: () => document.getElementById("btn-new-folder")?.click(),
+      },
+      {
+        label: "名前を付けてワークスペースを保存...",
+        action: () => saveNativeFileDialog(),
+      },
+      {
+        label: "ワークスペースを複製",
+        shortcut: "Ctrl+W Ctrl+A",
+        action: () => showStatusMessage("ワークスペースを複製しました"),
+      },
       { type: "separator" },
       { label: "保存", shortcut: "Ctrl+S", action: () => saveActiveFile() },
-      { label: "名前を付けて保存...", shortcut: "Ctrl+Shift+S", action: () => saveNativeFileDialog() },
-      { label: "すべて保存", shortcut: "Ctrl+K S", action: () => saveAllFiles() },
+      {
+        label: "名前を付けて保存...",
+        shortcut: "Ctrl+Shift+S",
+        action: () => saveNativeFileDialog(),
+      },
+      {
+        label: "すべて保存",
+        shortcut: "Ctrl+K S",
+        action: () => saveAllFiles(),
+      },
       { type: "separator" },
       {
         label: "共有",
         submenu: [
-          { label: "GitHub で共有...", action: () => window.open("https://github.com/applyuser160/editor", "_blank") },
+          {
+            label: "GitHub で共有...",
+            action: () =>
+              window.open("https://github.com/applyuser160/editor", "_blank"),
+          },
         ],
       },
       { type: "separator" },
-      { label: "自動保存", action: () => showStatusMessage("自動保存を有効にしました") },
+      {
+        label: "自動保存",
+        action: () => showStatusMessage("自動保存を有効にしました"),
+      },
       {
         label: "ユーザー設定",
         submenu: [
-          { label: "設定 (Settings)", shortcut: "Ctrl+,", action: () => document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click() },
-          { label: "キーボード ショートカット", shortcut: "Ctrl+K Ctrl+S", action: () => openQuickPick(true) },
-          { label: "拡張機能 (Extensions)", shortcut: "Ctrl+Shift+X", action: () => document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click() },
+          {
+            label: "設定 (Settings)",
+            shortcut: "Ctrl+,",
+            action: () =>
+              document
+                .querySelector<HTMLButtonElement>('[data-view="settings"]')
+                ?.click(),
+          },
+          {
+            label: "キーボード ショートカット",
+            shortcut: "Ctrl+K Ctrl+S",
+            action: () => openQuickPick(true),
+          },
+          {
+            label: "拡張機能 (Extensions)",
+            shortcut: "Ctrl+Shift+X",
+            action: () =>
+              document
+                .querySelector<HTMLButtonElement>('[data-view="extensions"]')
+                ?.click(),
+          },
         ],
       },
       { type: "separator" },
-      { label: "ファイルを元に戻す", action: () => { if (activeFilePath) openFile(activeFilePath, activeFilePath); } },
-      { label: "エディターを閉じる", shortcut: "Ctrl+F4", action: () => { if (activeFilePath) closeTab(activeFilePath); } },
-      { label: "フォルダーを閉じる", shortcut: "Ctrl+K F", action: () => { openTabs.clear(); activeFilePath = null; updateTabBar(); } },
-      { label: "ウィンドウを閉じる", shortcut: "Alt+F4", action: () => window.close() },
+      {
+        label: "ファイルを元に戻す",
+        action: () => {
+          if (activeFilePath) openFile(activeFilePath, activeFilePath);
+        },
+      },
+      {
+        label: "エディターを閉じる",
+        shortcut: "Ctrl+F4",
+        action: () => {
+          if (activeFilePath) closeTab(activeFilePath);
+        },
+      },
+      {
+        label: "フォルダーを閉じる",
+        shortcut: "Ctrl+K F",
+        action: () => {
+          openTabs.clear();
+          activeFilePath = null;
+          updateTabBar();
+        },
+      },
+      {
+        label: "ウィンドウを閉じる",
+        shortcut: "Alt+F4",
+        action: () => window.close(),
+      },
       { type: "separator" },
       { label: "終了", action: () => window.close() },
     ],
 
     edit: [
-      { label: "元に戻す", shortcut: "Ctrl+Z", action: () => editor1?.trigger("menu", "undo", null) },
-      { label: "やり直し", shortcut: "Ctrl+Y", action: () => editor1?.trigger("menu", "redo", null) },
+      {
+        label: "元に戻す",
+        shortcut: "Ctrl+Z",
+        action: () => editor1?.trigger("menu", "undo", null),
+      },
+      {
+        label: "やり直し",
+        shortcut: "Ctrl+Y",
+        action: () => editor1?.trigger("menu", "redo", null),
+      },
       { type: "separator" },
-      { label: "切り取り", shortcut: "Ctrl+X", action: () => document.execCommand("cut") },
-      { label: "コピー", shortcut: "Ctrl+C", action: () => document.execCommand("copy") },
+      {
+        label: "切り取り",
+        shortcut: "Ctrl+X",
+        action: () => document.execCommand("cut"),
+      },
+      {
+        label: "コピー",
+        shortcut: "Ctrl+C",
+        action: () => document.execCommand("copy"),
+      },
       {
         label: "形式を指定してコピー",
         submenu: [
-          { label: "構文の強調表示を付けてコピー", action: () => document.execCommand("copy") },
+          {
+            label: "構文の強調表示を付けてコピー",
+            action: () => document.execCommand("copy"),
+          },
         ],
       },
-      { label: "貼り付け", shortcut: "Ctrl+V", action: () => document.execCommand("paste") },
+      {
+        label: "貼り付け",
+        shortcut: "Ctrl+V",
+        action: () => document.execCommand("paste"),
+      },
       { type: "separator" },
-      { label: "検索", shortcut: "Ctrl+F", action: () => editor1?.trigger("menu", "actions.find", null) },
-      { label: "置換", shortcut: "Ctrl+H", action: () => editor1?.trigger("menu", "editor.action.startFindReplaceAction", null) },
+      {
+        label: "検索",
+        shortcut: "Ctrl+F",
+        action: () => editor1?.trigger("menu", "actions.find", null),
+      },
+      {
+        label: "置換",
+        shortcut: "Ctrl+H",
+        action: () =>
+          editor1?.trigger(
+            "menu",
+            "editor.action.startFindReplaceAction",
+            null,
+          ),
+      },
       { type: "separator" },
-      { label: "フォルダーを指定して検索", shortcut: "Ctrl+Shift+F", action: () => document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click() },
-      { label: "複数のファイルで置換", shortcut: "Ctrl+Shift+H", action: () => document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click() },
+      {
+        label: "フォルダーを指定して検索",
+        shortcut: "Ctrl+Shift+F",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="search"]')
+            ?.click(),
+      },
+      {
+        label: "複数のファイルで置換",
+        shortcut: "Ctrl+Shift+H",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="search"]')
+            ?.click(),
+      },
       { type: "separator" },
-      { label: "行コメントの切り替え", shortcut: "Ctrl+/", action: () => editor1?.trigger("menu", "editor.action.commentLine", null) },
-      { label: "ブロック コメントの切り替え", shortcut: "Shift+Alt+A", action: () => editor1?.trigger("menu", "editor.action.blockComment", null) },
-      { label: "Emmet: 省略記法を展開", shortcut: "Tab", action: () => editor1?.trigger("menu", "editor.action.triggerSuggest", null) },
+      {
+        label: "行コメントの切り替え",
+        shortcut: "Ctrl+/",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.commentLine", null),
+      },
+      {
+        label: "ブロック コメントの切り替え",
+        shortcut: "Shift+Alt+A",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.blockComment", null),
+      },
+      {
+        label: "Emmet: 省略記法を展開",
+        shortcut: "Tab",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.triggerSuggest", null),
+      },
     ],
 
     selection: [
-      { label: "すべて選択", shortcut: "Ctrl+A", action: () => editor1?.trigger("menu", "editor.action.selectAll", null) },
-      { label: "行を上にコピー", shortcut: "Alt+Shift+Up", action: () => editor1?.trigger("menu", "editor.action.copyLinesUpAction", null) },
-      { label: "行を下にコピー", shortcut: "Alt+Shift+Down", action: () => editor1?.trigger("menu", "editor.action.copyLinesDownAction", null) },
-      { label: "行を上に移動", shortcut: "Alt+Up", action: () => editor1?.trigger("menu", "editor.action.moveCarretUpAction", null) },
-      { label: "行を下に移動", shortcut: "Alt+Down", action: () => editor1?.trigger("menu", "editor.action.moveCarretDownAction", null) },
+      {
+        label: "すべて選択",
+        shortcut: "Ctrl+A",
+        action: () => editor1?.trigger("menu", "editor.action.selectAll", null),
+      },
+      {
+        label: "行を上にコピー",
+        shortcut: "Alt+Shift+Up",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.copyLinesUpAction", null),
+      },
+      {
+        label: "行を下にコピー",
+        shortcut: "Alt+Shift+Down",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.copyLinesDownAction", null),
+      },
+      {
+        label: "行を上に移動",
+        shortcut: "Alt+Up",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.moveCarretUpAction", null),
+      },
+      {
+        label: "行を下に移動",
+        shortcut: "Alt+Down",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.moveCarretDownAction", null),
+      },
     ],
 
     view: [
-      { label: "コマンド パレット...", shortcut: "Ctrl+Shift+P", action: () => openQuickPick(true) },
-      { label: "クイック オープン...", shortcut: "Ctrl+P", action: () => openQuickPick(false) },
+      {
+        label: "コマンド パレット...",
+        shortcut: "Ctrl+Shift+P",
+        action: () => openQuickPick(true),
+      },
+      {
+        label: "クイック オープン...",
+        shortcut: "Ctrl+P",
+        action: () => openQuickPick(false),
+      },
       { type: "separator" },
-      { label: "エクスプローラー", shortcut: "Ctrl+Shift+E", action: () => document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click() },
-      { label: "検索", shortcut: "Ctrl+Shift+F", action: () => document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click() },
-      { label: "ソース管理", shortcut: "Ctrl+Shift+G", action: () => document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click() },
-      { label: "拡張機能", shortcut: "Ctrl+Shift+X", action: () => document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click() },
+      {
+        label: "エクスプローラー",
+        shortcut: "Ctrl+Shift+E",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="explorer"]')
+            ?.click(),
+      },
+      {
+        label: "検索",
+        shortcut: "Ctrl+Shift+F",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="search"]')
+            ?.click(),
+      },
+      {
+        label: "ソース管理",
+        shortcut: "Ctrl+Shift+G",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="scm"]')
+            ?.click(),
+      },
+      {
+        label: "拡張機能",
+        shortcut: "Ctrl+Shift+X",
+        action: () =>
+          document
+            .querySelector<HTMLButtonElement>('[data-view="extensions"]')
+            ?.click(),
+      },
       { type: "separator" },
-      { label: "ターミナル", shortcut: "Ctrl+J", action: () => toggleTerminal() },
-      { label: "プライマリ サイドバーの切り替え", shortcut: "Ctrl+B", action: () => toggleSidebar() },
+      {
+        label: "ターミナル",
+        shortcut: "Ctrl+J",
+        action: () => toggleTerminal(),
+      },
+      {
+        label: "プライマリ サイドバーの切り替え",
+        shortcut: "Ctrl+B",
+        action: () => toggleSidebar(),
+      },
       { type: "separator" },
-      { label: "エディターを右に分割", shortcut: "◫", action: () => document.getElementById("btn-split-right")?.click() },
-      { label: "エディターを下に分割", shortcut: "⬒", action: () => document.getElementById("btn-split-down")?.click() },
+      {
+        label: "エディターを右に分割",
+        shortcut: "◫",
+        action: () => document.getElementById("btn-split-right")?.click(),
+      },
+      {
+        label: "エディターを下に分割",
+        shortcut: "⬒",
+        action: () => document.getElementById("btn-split-down")?.click(),
+      },
     ],
 
     go: [
-      { label: "戻る", shortcut: "Alt+Left", action: () => editor1?.trigger("menu", "workbench.action.navigateBack", null) },
-      { label: "進む", shortcut: "Alt+Right", action: () => editor1?.trigger("menu", "workbench.action.navigateForward", null) },
+      {
+        label: "戻る",
+        shortcut: "Alt+Left",
+        action: () =>
+          editor1?.trigger("menu", "workbench.action.navigateBack", null),
+      },
+      {
+        label: "進む",
+        shortcut: "Alt+Right",
+        action: () =>
+          editor1?.trigger("menu", "workbench.action.navigateForward", null),
+      },
       { type: "separator" },
-      { label: "ファイルへ移動...", shortcut: "Ctrl+P", action: () => openQuickPick(false) },
-      { label: "定義へ移動 (Go to Definition)", shortcut: "F12", action: () => performGoToDefinition() },
-      { label: "定義をここに表示 (Peek Definition)", shortcut: "Alt+F12", action: () => editor1?.trigger("menu", "editor.action.peekDefinition", null) },
-      { label: "参照へ移動 (Go to References)", shortcut: "Shift+F12", action: () => editor1?.trigger("menu", "editor.action.referenceSearch.trigger", null) },
-      { label: "行/列へ移動...", shortcut: "Ctrl+G", action: () => editor1?.trigger("menu", "editor.action.gotoLine", null) },
-      { label: "記号へ移動...", shortcut: "Ctrl+Shift+O", action: () => openQuickPick(true) },
+      {
+        label: "ファイルへ移動...",
+        shortcut: "Ctrl+P",
+        action: () => openQuickPick(false),
+      },
+      {
+        label: "定義へ移動 (Go to Definition)",
+        shortcut: "F12",
+        action: () => performGoToDefinition(),
+      },
+      {
+        label: "定義をここに表示 (Peek Definition)",
+        shortcut: "Alt+F12",
+        action: () =>
+          editor1?.trigger("menu", "editor.action.peekDefinition", null),
+      },
+      {
+        label: "参照へ移動 (Go to References)",
+        shortcut: "Shift+F12",
+        action: () =>
+          editor1?.trigger(
+            "menu",
+            "editor.action.referenceSearch.trigger",
+            null,
+          ),
+      },
+      {
+        label: "行/列へ移動...",
+        shortcut: "Ctrl+G",
+        action: () => editor1?.trigger("menu", "editor.action.gotoLine", null),
+      },
+      {
+        label: "記号へ移動...",
+        shortcut: "Ctrl+Shift+O",
+        action: () => openQuickPick(true),
+      },
     ],
 
     run: [
-      { label: "デバッグの開始", shortcut: "F5", action: () => showStatusMessage("デバッガーを起動中...") },
-      { label: "デバッグなしで実行", shortcut: "Ctrl+F5", action: () => showStatusMessage("プログラムを実行中...") },
+      {
+        label: "デバッグの開始",
+        shortcut: "F5",
+        action: () => showStatusMessage("デバッガーを起動中..."),
+      },
+      {
+        label: "デバッグなしで実行",
+        shortcut: "Ctrl+F5",
+        action: () => showStatusMessage("プログラムを実行中..."),
+      },
     ],
 
     terminal: [
-      { label: "新しいターミナル", shortcut: "Ctrl+Shift+`", action: () => toggleTerminal(true) },
-      { label: "ターミナルをクリア", action: () => getActiveTerminalSession()?.terminal.clear() },
-      { label: "ターミナル パネルの切り替え", shortcut: "Ctrl+J", action: () => toggleTerminal() },
+      {
+        label: "新しいターミナル",
+        shortcut: "Ctrl+Shift+`",
+        action: () => toggleTerminal(true),
+      },
+      {
+        label: "ターミナルをクリア",
+        action: () => getActiveTerminalSession()?.terminal.clear(),
+      },
+      {
+        label: "ターミナル パネルの切り替え",
+        shortcut: "Ctrl+J",
+        action: () => toggleTerminal(),
+      },
     ],
 
     help: [
-      { label: "へようこそ", action: () => openFile("welcome.rs", "welcome.rs") },
-      { label: "ドキュメント", action: () => window.open("https://github.com/applyuser160/editor#readme", "_blank") },
-      { label: "キーボード ショートカット", shortcut: "Ctrl+K Ctrl+S", action: () => openQuickPick(true) },
+      {
+        label: "へようこそ",
+        action: () => openFile("welcome.rs", "welcome.rs"),
+      },
+      {
+        label: "ドキュメント",
+        action: () =>
+          window.open(
+            "https://github.com/applyuser160/editor#readme",
+            "_blank",
+          ),
+      },
+      {
+        label: "キーボード ショートカット",
+        shortcut: "Ctrl+K Ctrl+S",
+        action: () => openQuickPick(true),
+      },
       { type: "separator" },
-      { label: "GitHub リポジトリを開く", action: () => window.open("https://github.com/applyuser160/editor", "_blank") },
+      {
+        label: "GitHub リポジトリを開く",
+        action: () =>
+          window.open("https://github.com/applyuser160/editor", "_blank"),
+      },
       { type: "separator" },
-      { label: "Oxide Editor について", action: () => alert("🦀 Oxide Editor v0.1.0\nMicrosoft VS Code on Tauri v2 Architecture\nUltra-fast & Lightweight Native Rust IDE") },
+      {
+        label: "Oxide Editor について",
+        action: () =>
+          alert(
+            "🦀 Oxide Editor v0.1.0\nMicrosoft VS Code on Tauri v2 Architecture\nUltra-fast & Lightweight Native Rust IDE",
+          ),
+      },
     ],
   };
 
-  const menuButtons = document.querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn");
+  const menuButtons = document.querySelectorAll<HTMLButtonElement>(
+    "#top-menu-bar .menu-btn",
+  );
   const dropdownEl = document.getElementById("global-menu-dropdown");
   if (!dropdownEl) return;
 
@@ -1193,12 +1619,16 @@ function setupVSCodeMenus() {
     (e) => {
       if (!isTopMenuOpen) return;
       const target = e.target as HTMLElement | null;
-      if (target?.closest("#global-menu-dropdown") || target?.closest(".vs-dropdown") || target?.closest("#top-menu-bar")) {
+      if (
+        target?.closest("#global-menu-dropdown") ||
+        target?.closest(".vs-dropdown") ||
+        target?.closest("#top-menu-bar")
+      ) {
         return;
       }
       closeGlobalMenu();
     },
-    true
+    true,
   );
 
   window.addEventListener(
@@ -1206,15 +1636,28 @@ function setupVSCodeMenus() {
     (e) => {
       if (!isTopMenuOpen) return;
       const target = e.target as HTMLElement | null;
-      if (target?.closest("#global-menu-dropdown") || target?.closest(".vs-dropdown") || target?.closest("#top-menu-bar")) {
+      if (
+        target?.closest("#global-menu-dropdown") ||
+        target?.closest(".vs-dropdown") ||
+        target?.closest("#top-menu-bar")
+      ) {
         return;
       }
       closeGlobalMenu();
     },
-    true
+    true,
   );
 
-  const menuKeys = ["file", "edit", "selection", "view", "go", "run", "terminal", "help"];
+  const menuKeys = [
+    "file",
+    "edit",
+    "selection",
+    "view",
+    "go",
+    "run",
+    "terminal",
+    "help",
+  ];
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "Alt" || e.key === "F10") {
@@ -1243,7 +1686,9 @@ function setupVSCodeMenus() {
       const currentIdx = menuKeys.indexOf(currentOpenMenuKey || "file");
       const nextIdx = (currentIdx + 1) % menuKeys.length;
       const nextKey = menuKeys[nextIdx];
-      const nextBtn = Array.from(menuButtons).find((b) => b.getAttribute("data-menu") === nextKey);
+      const nextBtn = Array.from(menuButtons).find(
+        (b) => b.getAttribute("data-menu") === nextKey,
+      );
       if (nextBtn) openMenu(nextKey, nextBtn);
       return;
     }
@@ -1253,15 +1698,21 @@ function setupVSCodeMenus() {
       const currentIdx = menuKeys.indexOf(currentOpenMenuKey || "file");
       const prevIdx = (currentIdx - 1 + menuKeys.length) % menuKeys.length;
       const prevKey = menuKeys[prevIdx];
-      const prevBtn = Array.from(menuButtons).find((b) => b.getAttribute("data-menu") === prevKey);
+      const prevBtn = Array.from(menuButtons).find(
+        (b) => b.getAttribute("data-menu") === prevKey,
+      );
       if (prevBtn) openMenu(prevKey, prevBtn);
       return;
     }
 
-    const items = dropdownEl?.querySelectorAll<HTMLElement>(".menu-dropdown-item:not(.disabled)");
+    const items = dropdownEl?.querySelectorAll<HTMLElement>(
+      ".menu-dropdown-item:not(.disabled)",
+    );
     if (!items || items.length === 0) return;
 
-    const focused = Array.from(items).findIndex((el) => el.classList.contains("focused"));
+    const focused = Array.from(items).findIndex((el) =>
+      el.classList.contains("focused"),
+    );
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -1275,7 +1726,10 @@ function setupVSCodeMenus() {
     if (e.key === "ArrowUp") {
       e.preventDefault();
       items.forEach((el) => el.classList.remove("focused"));
-      const prev = focused === -1 ? items.length - 1 : (focused - 1 + items.length) % items.length;
+      const prev =
+        focused === -1
+          ? items.length - 1
+          : (focused - 1 + items.length) % items.length;
       items[prev].classList.add("focused");
       items[prev].scrollIntoView({ block: "nearest" });
       return;
@@ -1298,7 +1752,9 @@ function closeGlobalMenu() {
   dropdownEl?.classList.add("hidden");
   const backdropEl = document.getElementById("menu-backdrop");
   backdropEl?.classList.add("hidden");
-  document.querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn").forEach((b) => b.classList.remove("active"));
+  document
+    .querySelectorAll<HTMLButtonElement>("#top-menu-bar .menu-btn")
+    .forEach((b) => b.classList.remove("active"));
   if (activeSubmenuEl) {
     activeSubmenuEl.remove();
     activeSubmenuEl = null;
@@ -1308,7 +1764,8 @@ function closeGlobalMenu() {
 function toggleTerminal(forceOpen?: boolean) {
   const panelPart = document.getElementById("panel-part");
   if (panelPart) {
-    isTerminalVisible = forceOpen !== undefined ? forceOpen : !isTerminalVisible;
+    isTerminalVisible =
+      forceOpen !== undefined ? forceOpen : !isTerminalVisible;
     panelPart.style.display = isTerminalVisible ? "flex" : "none";
     editor1?.layout();
     editor2?.layout();
@@ -1325,12 +1782,15 @@ function setupBranchSwitcher() {
     try {
       const branches = await invoke<string[]>("git_list_branches");
       const modal = document.getElementById("quickpick-modal");
-      const input = document.getElementById("quickpick-input") as HTMLInputElement;
+      const input = document.getElementById(
+        "quickpick-input",
+      ) as HTMLInputElement;
       if (!modal || !input) return;
 
       modal.classList.remove("hidden");
       input.value = "";
-      input.placeholder = "切り替えるブランチを選択、または新しいブランチ名を入力...";
+      input.placeholder =
+        "切り替えるブランチを選択、または新しいブランチ名を入力...";
       input.focus();
 
       quickPickItems = [
@@ -1341,7 +1801,9 @@ function setupBranchSwitcher() {
             const newBranchName = prompt("新しいブランチ名を入力してください:");
             if (newBranchName) {
               try {
-                const res = await invoke<string>("git_create_branch", { newBranch: newBranchName });
+                const res = await invoke<string>("git_create_branch", {
+                  newBranch: newBranchName,
+                });
                 showStatusMessage(res);
                 updateGitStatus();
               } catch (e) {
@@ -1358,7 +1820,9 @@ function setupBranchSwitcher() {
           title: `🌿 ${b}`,
           action: async () => {
             try {
-              const res = await invoke<string>("git_checkout_branch", { branch: b });
+              const res = await invoke<string>("git_checkout_branch", {
+                branch: b,
+              });
               showStatusMessage(res);
               updateGitStatus();
             } catch (e) {
@@ -1464,7 +1928,9 @@ async function setupIntegratedTerminal() {
   await createNewTerminalSession();
 
   window.addEventListener("resize", () => {
-    const active = terminalSessions.find((s) => s.id === activeTerminalSessionId);
+    const active = terminalSessions.find(
+      (s) => s.id === activeTerminalSessionId,
+    );
     active?.fitAddon.fit();
   });
 }
@@ -1483,13 +1949,16 @@ function setupPanelTabs() {
     tabOut?.classList.toggle("active", type === "output");
     tabProb?.classList.toggle("active", type === "problems");
 
-    if (termContainer) termContainer.style.display = type === "terminal" ? "block" : "none";
-    if (outContainer) outContainer.classList.toggle("hidden", type !== "output");
+    if (termContainer)
+      termContainer.style.display = type === "terminal" ? "block" : "none";
+    if (outContainer)
+      outContainer.classList.toggle("hidden", type !== "output");
     if (probContainer) {
       probContainer.classList.toggle("hidden", type !== "problems");
       if (type === "problems") renderProblemsPanel();
     }
-    if (termActions) termActions.style.display = type === "terminal" ? "flex" : "none";
+    if (termActions)
+      termActions.style.display = type === "terminal" ? "flex" : "none";
   };
 
   tabTerm?.addEventListener("click", () => selectTab("terminal"));
@@ -1532,7 +2001,10 @@ function renderProblemsPanel() {
       await openFile(path, fileName);
       if (editor1) {
         editor1.revealLineInCenter(m.startLineNumber);
-        editor1.setPosition({ lineNumber: m.startLineNumber, column: m.startColumn });
+        editor1.setPosition({
+          lineNumber: m.startLineNumber,
+          column: m.startColumn,
+        });
       }
     };
 
@@ -1591,7 +2063,11 @@ async function createNewTerminalSession() {
     });
 
     term.onResize((size) => {
-      invoke("resize_pty", { id: currentPtyId, cols: size.cols, rows: size.rows });
+      invoke("resize_pty", {
+        id: currentPtyId,
+        cols: size.cols,
+        rows: size.rows,
+      });
     });
 
     const session: TerminalSession = {
@@ -1635,7 +2111,8 @@ function killTerminalSession(sessionId: number) {
   terminalSessions.splice(idx, 1);
 
   if (terminalSessions.length > 0) {
-    const nextSession = terminalSessions[Math.min(idx, terminalSessions.length - 1)];
+    const nextSession =
+      terminalSessions[Math.min(idx, terminalSessions.length - 1)];
     switchTerminalSession(nextSession.id);
   } else {
     activeTerminalSessionId = null;
@@ -1660,27 +2137,35 @@ function renderTerminalSessionTabs() {
 
 // 7. File Watcher Real-time Sync
 async function setupFileWatcherListener() {
-  await listen<{ paths: string[]; kind: string }>("fs-change", async (event) => {
-    if (currentActiveView === "explorer") {
-      loadWorkspaceFiles();
-    } else if (currentActiveView === "scm") {
-      const contentEl = document.getElementById("sidebar-content");
-      if (contentEl) renderScmView(contentEl);
-    }
+  await listen<{ paths: string[]; kind: string }>(
+    "fs-change",
+    async (event) => {
+      if (currentActiveView === "explorer") {
+        loadWorkspaceFiles();
+      } else if (currentActiveView === "scm") {
+        const contentEl = document.getElementById("sidebar-content");
+        if (contentEl) renderScmView(contentEl);
+      }
 
-    if (activeFilePath && event.payload.paths.some((p) => p.endsWith(activeFilePath!))) {
-      const tab = openTabs.get(activeFilePath);
-      if (tab && !tab.isDirty) {
-        try {
-          const freshContent = await invoke<string>("read_file_content", { path: activeFilePath });
-          tab.model.setValue(freshContent);
-          showStatusMessage(`外部変更を反映: ${tab.name}`);
-        } catch (e) {
-          console.error(e);
+      if (
+        activeFilePath &&
+        event.payload.paths.some((p) => p.endsWith(activeFilePath!))
+      ) {
+        const tab = openTabs.get(activeFilePath);
+        if (tab && !tab.isDirty) {
+          try {
+            const freshContent = await invoke<string>("read_file_content", {
+              path: activeFilePath,
+            });
+            tab.model.setValue(freshContent);
+            showStatusMessage(`外部変更を反映: ${tab.name}`);
+          } catch (e) {
+            console.error(e);
+          }
         }
       }
-    }
-  });
+    },
+  );
 }
 
 // 8. Extension Host Initialization
@@ -1689,7 +2174,9 @@ async function initExtensionHost() {
     const statusMsg = await invoke<string>("start_extension_sidecar");
     const statusEl = document.getElementById("window-status");
     if (statusEl) {
-      statusEl.textContent = statusMsg.includes("Node.js") ? "Extension Host (Node.js) Ready" : "Native & WASM Runtime";
+      statusEl.textContent = statusMsg.includes("Node.js")
+        ? "Extension Host (Node.js) Ready"
+        : "Native & WASM Runtime";
     }
   } catch (e) {
     console.error("Extension host init error:", e);
@@ -1845,7 +2332,9 @@ async function saveFileTab(tab: OpenTab) {
   }
 }
 
-function promptSaveIfDirty(tab: OpenTab): Promise<"save" | "dontsave" | "cancel"> {
+function promptSaveIfDirty(
+  tab: OpenTab,
+): Promise<"save" | "dontsave" | "cancel"> {
   return new Promise((resolve) => {
     if (!tab.isDirty) {
       resolve("dontsave");
@@ -1859,7 +2348,14 @@ function promptSaveIfDirty(tab: OpenTab): Promise<"save" | "dontsave" | "cancel"
     const btnDontSave = document.getElementById("confirm-btn-dontsave");
     const btnCancel = document.getElementById("confirm-btn-cancel");
 
-    if (!modal || !titleEl || !msgEl || !btnSave || !btnDontSave || !btnCancel) {
+    if (
+      !modal ||
+      !titleEl ||
+      !msgEl ||
+      !btnSave ||
+      !btnDontSave ||
+      !btnCancel
+    ) {
       const ok = confirm(`'${tab.name}' への変更を保存しますか？`);
       resolve(ok ? "save" : "dontsave");
       return;
@@ -1897,18 +2393,30 @@ function promptSaveIfDirty(tab: OpenTab): Promise<"save" | "dontsave" | "cancel"
 function getFileIcon(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   switch (ext) {
-    case "rs": return "🦀";
-    case "ts": return "📘";
-    case "js": return "🟨";
-    case "json": return "⚙";
-    case "toml": return "📦";
-    case "md": return "📝";
-    case "html": return "🌐";
-    case "css": return "🎨";
-    case "py": return "🐍";
-    case "go": return "🔷";
-    case "lock": return "🔒";
-    default: return "📄";
+    case "rs":
+      return "🦀";
+    case "ts":
+      return "📘";
+    case "js":
+      return "🟨";
+    case "json":
+      return "⚙";
+    case "toml":
+      return "📦";
+    case "md":
+      return "📝";
+    case "html":
+      return "🌐";
+    case "css":
+      return "🎨";
+    case "py":
+      return "🐍";
+    case "go":
+      return "🔷";
+    case "lock":
+      return "🔒";
+    default:
+      return "📄";
   }
 }
 
@@ -1924,17 +2432,17 @@ function updateBreadcrumbs(filePath: string | null) {
 
   const normalized = normalizePath(filePath);
   const parts = normalized.split("/").filter(Boolean);
-  
+
   breadcrumbEl.innerHTML = "";
-  
+
   parts.forEach((part, index) => {
     const isLast = index === parts.length - 1;
     const itemEl = document.createElement("span");
     itemEl.className = `breadcrumb-item clickable ${isLast ? "active-file" : "folder"}`;
-    
+
     const icon = isLast ? getFileIcon(part) : "📁";
     itemEl.innerHTML = `<span class="breadcrumb-icon">${icon}</span> <span>${part}</span>`;
-    
+
     // Build path up to this segment
     const segmentPath = parts.slice(0, index + 1).join("/");
     itemEl.onclick = (e) => {
@@ -1956,17 +2464,24 @@ function updateBreadcrumbs(filePath: string | null) {
   document.title = `${fileName} - Oxide Editor`;
 }
 
-async function showBreadcrumbPicker(targetPath: string, isFile: boolean, x: number, y: number) {
+async function showBreadcrumbPicker(
+  targetPath: string,
+  isFile: boolean,
+  x: number,
+  y: number,
+) {
   const dropdown = document.getElementById("global-menu-dropdown");
   if (!dropdown) return;
 
   // If clicking on a file, show sibling files in same parent dir
-  const dirPath = isFile ? targetPath.substring(0, targetPath.lastIndexOf("/")) : targetPath;
+  const dirPath = isFile
+    ? targetPath.substring(0, targetPath.lastIndexOf("/"))
+    : targetPath;
 
   try {
     const allFiles = await invoke<FileEntry[]>("list_workspace_files");
     const normalizedDir = normalizePath(dirPath);
-    
+
     // Filter files and direct subfolders in this directory
     const siblings = allFiles.filter((f) => {
       const p = normalizePath(f.path);
@@ -2125,7 +2640,10 @@ async function closeTab(rawPath: string): Promise<boolean> {
   if (activeFilePath === path) {
     const remainingKeys = Array.from(openTabs.keys());
     if (remainingKeys.length > 0) {
-      const nextIndex = Math.min(Math.max(0, closedIndex - 1), remainingKeys.length - 1);
+      const nextIndex = Math.min(
+        Math.max(0, closedIndex - 1),
+        remainingKeys.length - 1,
+      );
       const nextPath = remainingKeys[nextIndex];
       openFile(nextPath, openTabs.get(nextPath)!.name);
     } else {
@@ -2237,10 +2755,24 @@ function showTabContextMenu(x: number, y: number, targetPath: string) {
   isTopMenuOpen = true;
 
   const items = [
-    { label: "閉じる (Close)", shortcut: "Ctrl+W", action: () => closeTab(targetPath) },
-    { label: "他のタブを閉じる (Close Others)", action: () => closeOtherTabs(targetPath) },
-    { label: "右側のタブを閉じる (Close to the Right)", action: () => closeTabsToTheRight(targetPath) },
-    { label: "すべて閉じる (Close All)", shortcut: "Ctrl+K Ctrl+W", action: () => closeAllTabs() },
+    {
+      label: "閉じる (Close)",
+      shortcut: "Ctrl+W",
+      action: () => closeTab(targetPath),
+    },
+    {
+      label: "他のタブを閉じる (Close Others)",
+      action: () => closeOtherTabs(targetPath),
+    },
+    {
+      label: "右側のタブを閉じる (Close to the Right)",
+      action: () => closeTabsToTheRight(targetPath),
+    },
+    {
+      label: "すべて閉じる (Close All)",
+      shortcut: "Ctrl+K Ctrl+W",
+      action: () => closeAllTabs(),
+    },
     { type: "separator" },
     {
       label: "パスをコピー (Copy Path)",
@@ -2287,18 +2819,30 @@ function showTabContextMenu(x: number, y: number, targetPath: string) {
 function getLanguageFromPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
   switch (ext) {
-    case "rs": return "rust";
-    case "ts": return "typescript";
-    case "js": return "javascript";
-    case "json": return "json";
-    case "md": return "markdown";
-    case "toml": return "ini";
-    case "html": return "html";
-    case "css": return "css";
-    case "py": return "python";
-    case "go": return "go";
-    case "sh": return "shell";
-    default: return "plaintext";
+    case "rs":
+      return "rust";
+    case "ts":
+      return "typescript";
+    case "js":
+      return "javascript";
+    case "json":
+      return "json";
+    case "md":
+      return "markdown";
+    case "toml":
+      return "ini";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "py":
+      return "python";
+    case "go":
+      return "go";
+    case "sh":
+      return "shell";
+    default:
+      return "plaintext";
   }
 }
 
@@ -2401,11 +2945,15 @@ async function renderExtensionsView(container: HTMLElement) {
 
   const installedList = document.getElementById("installed-ext-list");
   const marketplaceList = document.getElementById("openvsx-ext-list");
-  const searchInput = document.getElementById("openvsx-search-input") as HTMLInputElement;
+  const searchInput = document.getElementById(
+    "openvsx-search-input",
+  ) as HTMLInputElement;
 
   if (installedList) {
     try {
-      const exts = await invoke<ExtensionManifest[]>("get_installed_extensions");
+      const exts = await invoke<ExtensionManifest[]>(
+        "get_installed_extensions",
+      );
       installedList.innerHTML = "";
       exts.forEach((ext) => {
         const card = document.createElement("div");
@@ -2421,22 +2969,29 @@ async function renderExtensionsView(container: HTMLElement) {
             <button class="btn-toggle-ext" data-id="${ext.id}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
           </div>
         `;
-        const toggleButton = card.querySelector<HTMLButtonElement>(".btn-toggle-ext");
+        const toggleButton =
+          card.querySelector<HTMLButtonElement>(".btn-toggle-ext");
         toggleButton?.addEventListener("click", async (event) => {
           event.stopPropagation();
           toggleButton.disabled = true;
           try {
-            await invoke("set_extension_enabled", { id: ext.id, enabled: !ext.enabled });
+            await invoke("set_extension_enabled", {
+              id: ext.id,
+              enabled: !ext.enabled,
+            });
             await renderExtensionsView(container);
           } catch (error) {
-            showToast(`拡張機能の状態を変更できませんでした: ${error}`, "error");
+            showToast(
+              `拡張機能の状態を変更できませんでした: ${error}`,
+              "error",
+            );
             toggleButton.disabled = false;
           }
         });
 
         card.addEventListener("click", () => {
           const fakeOpenVsxExt: OpenVsxExtension = {
-            namespace: ext.id.split('.')[0] || '',
+            namespace: ext.id.split(".")[0] || "",
             name: ext.name,
             version: ext.version,
             display_name: ext.name,
@@ -2444,7 +2999,7 @@ async function renderExtensionsView(container: HTMLElement) {
             download_count: null,
             icon_url: null,
             download_url: null,
-            url: null
+            url: null,
           };
           openExtensionDetail(fakeOpenVsxExt, true);
         });
@@ -2460,7 +3015,10 @@ async function renderExtensionsView(container: HTMLElement) {
     marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">Open VSX を検索中...</div>`;
 
     try {
-      const results = await invoke<OpenVsxExtension[]>("search_openvsx_extensions", { query });
+      const results = await invoke<OpenVsxExtension[]>(
+        "search_openvsx_extensions",
+        { query },
+      );
       marketplaceList.innerHTML = "";
 
       if (results.length === 0) {
@@ -2473,7 +3031,9 @@ async function renderExtensionsView(container: HTMLElement) {
         card.className = "openvsx-ext-card";
         const title = ext.display_name || ext.name;
         const id = `${ext.namespace}.${ext.name}`;
-        const downloads = ext.download_count ? `${ext.download_count.toLocaleString()} DL` : "";
+        const downloads = ext.download_count
+          ? `${ext.download_count.toLocaleString()} DL`
+          : "";
 
         card.innerHTML = `
           <div class="openvsx-ext-header">
@@ -2544,8 +3104,12 @@ async function renderExtensionsView(container: HTMLElement) {
 
 // 14. Search Feature Integration
 function setupSearchInput() {
-  const input = document.getElementById("global-search-input") as HTMLInputElement;
-  const replaceInput = document.getElementById("global-replace-input") as HTMLInputElement;
+  const input = document.getElementById(
+    "global-search-input",
+  ) as HTMLInputElement;
+  const replaceInput = document.getElementById(
+    "global-replace-input",
+  ) as HTMLInputElement;
   const list = document.getElementById("search-results-list");
   const toggleCase = document.getElementById("toggle-case");
   const toggleWord = document.getElementById("toggle-word");
@@ -2587,7 +3151,10 @@ function setupSearchInput() {
           <div class="search-match-line">${escapeHtml(m.line_text)}</div>
         `;
         item.onclick = async () => {
-          await openFile(m.file_path, m.file_path.split("/").pop() || m.file_path);
+          await openFile(
+            m.file_path,
+            m.file_path.split("/").pop() || m.file_path,
+          );
           if (editor1) {
             editor1.revealLineInCenter(m.line_number);
             editor1.setPosition({ lineNumber: m.line_number, column: 1 });
@@ -2669,9 +3236,16 @@ function getActiveLanguage(): string {
   return editor?.getModel()?.getLanguageId() || "plaintext";
 }
 
-function renderSettingsView(container: HTMLElement, selectedScope: SettingScope = "user") {
+function renderSettingsView(
+  container: HTMLElement,
+  selectedScope: SettingScope = "user",
+) {
   const language = getActiveLanguage();
-  const scopedSettings = getScopedSettings(selectedScope, workspaceRoot, language);
+  const scopedSettings = getScopedSettings(
+    selectedScope,
+    workspaceRoot,
+    language,
+  );
   const resolvedSettings = resolveSettings(workspaceRoot, language);
   const profiles = getProfiles();
 
@@ -2742,41 +3316,71 @@ function renderSettingsView(container: HTMLElement, selectedScope: SettingScope 
   setupSettingsHandlers(container, selectedScope);
 }
 
-function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingScope) {
+function setupSettingsHandlers(
+  container: HTMLElement,
+  selectedScope: SettingScope,
+) {
   const language = getActiveLanguage();
-  const scopeSelector = container.querySelector<HTMLSelectElement>("#settings-scope");
-  const settingsJson = container.querySelector<HTMLTextAreaElement>("#settings-json");
-  const themeSelector = container.querySelector<HTMLSelectElement>("#theme-selector");
-  const fontSizeInput = container.querySelector<HTMLInputElement>("#font-size-input");
-  const tabSizeInput = container.querySelector<HTMLInputElement>("#tab-size-input");
-  const minimapCheckbox = container.querySelector<HTMLInputElement>("#minimap-checkbox");
+  const scopeSelector =
+    container.querySelector<HTMLSelectElement>("#settings-scope");
+  const settingsJson =
+    container.querySelector<HTMLTextAreaElement>("#settings-json");
+  const themeSelector =
+    container.querySelector<HTMLSelectElement>("#theme-selector");
+  const fontSizeInput =
+    container.querySelector<HTMLInputElement>("#font-size-input");
+  const tabSizeInput =
+    container.querySelector<HTMLInputElement>("#tab-size-input");
+  const minimapCheckbox =
+    container.querySelector<HTMLInputElement>("#minimap-checkbox");
 
   scopeSelector?.addEventListener("change", () => {
     renderSettingsView(container, scopeSelector.value as SettingScope);
   });
 
-  const saveSetting = (key: keyof EditorSettings, value: EditorSettings[keyof EditorSettings]) => {
+  const saveSetting = (
+    key: keyof EditorSettings,
+    value: EditorSettings[keyof EditorSettings],
+  ) => {
     const settings = getScopedSettings(selectedScope, workspaceRoot, language);
-    saveScopedSettings(selectedScope, workspaceRoot, language, { ...settings, [key]: value });
+    saveScopedSettings(selectedScope, workspaceRoot, language, {
+      ...settings,
+      [key]: value,
+    });
     applyStoredSettings();
     renderSettingsView(container, selectedScope);
   };
 
-  themeSelector?.addEventListener("change", () => saveSetting("theme", themeSelector.value as EditorSettings["theme"]));
-  fontSizeInput?.addEventListener("change", () => saveSetting("fontSize", Number(fontSizeInput.value)));
-  tabSizeInput?.addEventListener("change", () => saveSetting("tabSize", Number(tabSizeInput.value)));
-  minimapCheckbox?.addEventListener("change", () => saveSetting("minimap", minimapCheckbox.checked));
+  themeSelector?.addEventListener("change", () =>
+    saveSetting("theme", themeSelector.value as EditorSettings["theme"]),
+  );
+  fontSizeInput?.addEventListener("change", () =>
+    saveSetting("fontSize", Number(fontSizeInput.value)),
+  );
+  tabSizeInput?.addEventListener("change", () =>
+    saveSetting("tabSize", Number(tabSizeInput.value)),
+  );
+  minimapCheckbox?.addEventListener("change", () =>
+    saveSetting("minimap", minimapCheckbox.checked),
+  );
 
-  container.querySelector("#apply-settings-json")?.addEventListener("click", () => {
-    try {
-      saveScopedSettings(selectedScope, workspaceRoot, language, JSON.parse(settingsJson?.value || "{}") as unknown);
-      applyStoredSettings();
-      renderSettingsView(container, selectedScope);
-      showStatusMessage("設定JSONを適用しました");
-    } catch (error) {
-      alert(`設定JSONエラー: ${error}`);
-    }
-  });
+  container
+    .querySelector("#apply-settings-json")
+    ?.addEventListener("click", () => {
+      try {
+        saveScopedSettings(
+          selectedScope,
+          workspaceRoot,
+          language,
+          JSON.parse(settingsJson?.value || "{}") as unknown,
+        );
+        applyStoredSettings();
+        renderSettingsView(container, selectedScope);
+        showStatusMessage("設定JSONを適用しました");
+      } catch (error) {
+        alert(`設定JSONエラー: ${error}`);
+      }
+    });
 
   const renderKeybindings = (query = "") => {
     const keybindings = getKeybindings();
@@ -2791,7 +3395,9 @@ function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingSco
           .map(
             (conflict) =>
               `<div class="keybinding-conflict">${escapeHtml(conflict.key)}: ${conflict.commands
-                .map((command) => escapeHtml(COMMAND_LABELS[command] || command))
+                .map((command) =>
+                  escapeHtml(COMMAND_LABELS[command] || command),
+                )
                 .join(" / ")}</div>`,
           )
           .join("")
@@ -2800,7 +3406,11 @@ function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingSco
     list.innerHTML = keybindings
       .filter((binding) => {
         const label = COMMAND_LABELS[binding.command] || binding.command;
-        return !normalizedQuery || label.toLowerCase().includes(normalizedQuery) || binding.key.toLowerCase().includes(normalizedQuery);
+        return (
+          !normalizedQuery ||
+          label.toLowerCase().includes(normalizedQuery) ||
+          binding.key.toLowerCase().includes(normalizedQuery)
+        );
       })
       .map(
         (binding) => `
@@ -2812,71 +3422,97 @@ function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingSco
       )
       .join("");
 
-    list.querySelectorAll<HTMLInputElement>("input[data-command]").forEach((input) => {
-      input.addEventListener("keydown", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "Escape") {
-          input.blur();
-          return;
-        }
-        const key = keybindingFromEvent(event);
-        if (!key || ["Ctrl", "Shift", "Alt", "Meta"].includes(key)) return;
-        const updated = keybindings.map((binding) =>
-          binding.command === input.dataset.command ? { ...binding, key } : binding,
-        );
-        saveKeybindings(updated);
-        const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
-        if (json) json.value = JSON.stringify(updated, null, 2);
-        renderKeybindings((container.querySelector<HTMLInputElement>("#keybinding-search")?.value || ""));
+    list
+      .querySelectorAll<HTMLInputElement>("input[data-command]")
+      .forEach((input) => {
+        input.addEventListener("keydown", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            input.blur();
+            return;
+          }
+          const key = keybindingFromEvent(event);
+          if (!key || ["Ctrl", "Shift", "Alt", "Meta"].includes(key)) return;
+          const updated = keybindings.map((binding) =>
+            binding.command === input.dataset.command
+              ? { ...binding, key }
+              : binding,
+          );
+          saveKeybindings(updated);
+          const json =
+            container.querySelector<HTMLTextAreaElement>("#keybindings-json");
+          if (json) json.value = JSON.stringify(updated, null, 2);
+          renderKeybindings(
+            container.querySelector<HTMLInputElement>("#keybinding-search")
+              ?.value || "",
+          );
+        });
       });
-    });
   };
 
-  const keybindingSearch = container.querySelector<HTMLInputElement>("#keybinding-search");
-  keybindingSearch?.addEventListener("input", () => renderKeybindings(keybindingSearch.value));
+  const keybindingSearch =
+    container.querySelector<HTMLInputElement>("#keybinding-search");
+  keybindingSearch?.addEventListener("input", () =>
+    renderKeybindings(keybindingSearch.value),
+  );
   renderKeybindings();
 
-  container.querySelector("#apply-keybindings-json")?.addEventListener("click", () => {
-    const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
-    try {
-      const keybindings = saveKeybindings(JSON.parse(json?.value || "[]") as unknown);
+  container
+    .querySelector("#apply-keybindings-json")
+    ?.addEventListener("click", () => {
+      const json =
+        container.querySelector<HTMLTextAreaElement>("#keybindings-json");
+      try {
+        const keybindings = saveKeybindings(
+          JSON.parse(json?.value || "[]") as unknown,
+        );
+        if (json) json.value = JSON.stringify(keybindings, null, 2);
+        renderKeybindings(keybindingSearch?.value);
+        showStatusMessage("キーバインドJSONを適用しました");
+      } catch (error) {
+        alert(`キーバインドJSONエラー: ${error}`);
+      }
+    });
+
+  container
+    .querySelector("#reset-keybindings")
+    ?.addEventListener("click", () => {
+      const keybindings = resetKeybindings();
+      const json =
+        container.querySelector<HTMLTextAreaElement>("#keybindings-json");
       if (json) json.value = JSON.stringify(keybindings, null, 2);
       renderKeybindings(keybindingSearch?.value);
-      showStatusMessage("キーバインドJSONを適用しました");
-    } catch (error) {
-      alert(`キーバインドJSONエラー: ${error}`);
-    }
-  });
-
-  container.querySelector("#reset-keybindings")?.addEventListener("click", () => {
-    const keybindings = resetKeybindings();
-    const json = container.querySelector<HTMLTextAreaElement>("#keybindings-json");
-    if (json) json.value = JSON.stringify(keybindings, null, 2);
-    renderKeybindings(keybindingSearch?.value);
-  });
+    });
 
   const getSelectedProfile = () => {
-    const id = container.querySelector<HTMLSelectElement>("#profile-selector")?.value;
+    const id =
+      container.querySelector<HTMLSelectElement>("#profile-selector")?.value;
     return getProfiles().find((profile) => profile.id === id);
   };
 
-  container.querySelector("#create-profile")?.addEventListener("click", async () => {
-    try {
-      const name = container.querySelector<HTMLInputElement>("#profile-name")?.value || "";
-      let extensions: string[] = [];
+  container
+    .querySelector("#create-profile")
+    ?.addEventListener("click", async () => {
       try {
-        extensions = (await invoke<ExtensionManifest[]>("get_installed_extensions")).map((extension) => extension.id);
-      } catch {
-        extensions = [];
+        const name =
+          container.querySelector<HTMLInputElement>("#profile-name")?.value ||
+          "";
+        let extensions: string[] = [];
+        try {
+          extensions = (
+            await invoke<ExtensionManifest[]>("get_installed_extensions")
+          ).map((extension) => extension.id);
+        } catch {
+          extensions = [];
+        }
+        createProfile(name, extensions);
+        renderSettingsView(container, selectedScope);
+        showStatusMessage("プロファイルを作成しました");
+      } catch (error) {
+        alert(`プロファイル作成エラー: ${error}`);
       }
-      createProfile(name, extensions);
-      renderSettingsView(container, selectedScope);
-      showStatusMessage("プロファイルを作成しました");
-    } catch (error) {
-      alert(`プロファイル作成エラー: ${error}`);
-    }
-  });
+    });
 
   container.querySelector("#apply-profile")?.addEventListener("click", () => {
     const profile = getSelectedProfile();
@@ -2897,25 +3533,32 @@ function setupSettingsHandlers(container: HTMLElement, selectedScope: SettingSco
   container.querySelector("#export-profile")?.addEventListener("click", () => {
     const profile = getSelectedProfile();
     if (!profile) return;
-    downloadTextFile(`${profile.name.replace(/[^\w.-]+/g, "_") || "oxide-profile"}.json`, exportProfile(profile));
+    downloadTextFile(
+      `${profile.name.replace(/[^\w.-]+/g, "_") || "oxide-profile"}.json`,
+      exportProfile(profile),
+    );
   });
 
-  container.querySelector<HTMLInputElement>("#import-profile")?.addEventListener("change", async (event) => {
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      const profile = importProfile(await file.text());
-      renderSettingsView(container, selectedScope);
-      showStatusMessage(`プロファイルをインポートしました: ${profile.name}`);
-    } catch (error) {
-      alert(`プロファイル読込エラー: ${error}`);
-    }
-  });
+  container
+    .querySelector<HTMLInputElement>("#import-profile")
+    ?.addEventListener("change", async (event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const profile = importProfile(await file.text());
+        renderSettingsView(container, selectedScope);
+        showStatusMessage(`プロファイルをインポートしました: ${profile.name}`);
+      } catch (error) {
+        alert(`プロファイル読込エラー: ${error}`);
+      }
+    });
 }
 
 function downloadTextFile(fileName: string, content: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "application/json" }),
+  );
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
@@ -2956,41 +3599,47 @@ async function renderScmView(container: HTMLElement) {
       </div>
     `;
 
-    document.getElementById("btn-git-pull")?.addEventListener("click", async () => {
-      showToast("Git Pull 実行中...", "info");
-      try {
-        const res = await invoke<string>("git_pull");
-        showToast(res || "Git Pull 完了", "info");
-        await updateGitStatus();
-        await loadWorkspaceFiles();
-      } catch (err) {
-        showToast(`Pull 失敗: ${err}`, "error");
-      }
-    });
+    document
+      .getElementById("btn-git-pull")
+      ?.addEventListener("click", async () => {
+        showToast("Git Pull 実行中...", "info");
+        try {
+          const res = await invoke<string>("git_pull");
+          showToast(res || "Git Pull 完了", "info");
+          await updateGitStatus();
+          await loadWorkspaceFiles();
+        } catch (err) {
+          showToast(`Pull 失敗: ${err}`, "error");
+        }
+      });
 
-    document.getElementById("btn-git-push")?.addEventListener("click", async () => {
-      showToast("Git Push 実行中...", "info");
-      try {
-        const res = await invoke<string>("git_push");
-        showToast(res || "Git Push 完了", "info");
-        await updateGitStatus();
-      } catch (err) {
-        showToast(`Push 失敗: ${err}`, "error");
-      }
-    });
+    document
+      .getElementById("btn-git-push")
+      ?.addEventListener("click", async () => {
+        showToast("Git Push 実行中...", "info");
+        try {
+          const res = await invoke<string>("git_push");
+          showToast(res || "Git Push 完了", "info");
+          await updateGitStatus();
+        } catch (err) {
+          showToast(`Push 失敗: ${err}`, "error");
+        }
+      });
 
-    document.getElementById("btn-git-sync")?.addEventListener("click", async () => {
-      showToast("Git Sync 実行中...", "info");
-      try {
-        await invoke("git_pull");
-        const pushRes = await invoke<string>("git_push");
-        showToast(pushRes || "Git 同期完了", "info");
-        await updateGitStatus();
-        await loadWorkspaceFiles();
-      } catch (err) {
-        showToast(`Sync 失敗: ${err}`, "error");
-      }
-    });
+    document
+      .getElementById("btn-git-sync")
+      ?.addEventListener("click", async () => {
+        showToast("Git Sync 実行中...", "info");
+        try {
+          await invoke("git_pull");
+          const pushRes = await invoke<string>("git_push");
+          showToast(pushRes || "Git 同期完了", "info");
+          await updateGitStatus();
+          await loadWorkspaceFiles();
+        } catch (err) {
+          showToast(`Sync 失敗: ${err}`, "error");
+        }
+      });
 
     const list = document.getElementById("scm-files-list");
     if (list) {
@@ -3001,11 +3650,19 @@ async function renderScmView(container: HTMLElement) {
 
         let tagClass = "modified";
         let tagText = "M";
-        if (statusCode.includes("?")) { tagClass = "untracked"; tagText = "U"; }
-        else if (statusCode.includes("A")) { tagClass = "added"; tagText = "A"; }
-        else if (statusCode.includes("D")) { tagClass = "deleted"; tagText = "D"; }
+        if (statusCode.includes("?")) {
+          tagClass = "untracked";
+          tagText = "U";
+        } else if (statusCode.includes("A")) {
+          tagClass = "added";
+          tagText = "A";
+        } else if (statusCode.includes("D")) {
+          tagClass = "deleted";
+          tagText = "D";
+        }
 
-        const isStaged = !statusCode.startsWith(" ") && !statusCode.includes("?");
+        const isStaged =
+          !statusCode.startsWith(" ") && !statusCode.includes("?");
 
         const row = document.createElement("div");
         row.className = "scm-file-row";
@@ -3017,32 +3674,38 @@ async function renderScmView(container: HTMLElement) {
           <button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button>
         `;
 
-        row.querySelector("span:nth-child(2)")?.addEventListener("click", () => {
-          openFile(filePath, filePath.split("/").pop() || filePath);
-        });
+        row
+          .querySelector("span:nth-child(2)")
+          ?.addEventListener("click", () => {
+            openFile(filePath, filePath.split("/").pop() || filePath);
+          });
 
-        row.querySelector(".scm-stage-btn")?.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          try {
-            if (isStaged) {
-              await invoke("git_unstage_file", { path: filePath });
-              showToast(`ステージ解除: ${filePath}`, "info");
-            } else {
-              await invoke("git_stage_file", { path: filePath });
-              showToast(`ステージ追加: ${filePath}`, "info");
+        row
+          .querySelector(".scm-stage-btn")
+          ?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            try {
+              if (isStaged) {
+                await invoke("git_unstage_file", { path: filePath });
+                showToast(`ステージ解除: ${filePath}`, "info");
+              } else {
+                await invoke("git_stage_file", { path: filePath });
+                showToast(`ステージ追加: ${filePath}`, "info");
+              }
+              updateSidebarView("scm");
+            } catch (err) {
+              showToast(`ステージング失敗: ${err}`, "error");
             }
-            updateSidebarView("scm");
-          } catch (err) {
-            showToast(`ステージング失敗: ${err}`, "error");
-          }
-        });
+          });
 
         list.appendChild(row);
       });
     }
 
     const btnCommit = document.getElementById("btn-commit");
-    const commitInput = document.getElementById("git-commit-msg") as HTMLTextAreaElement;
+    const commitInput = document.getElementById(
+      "git-commit-msg",
+    ) as HTMLTextAreaElement;
     if (btnCommit && commitInput) {
       btnCommit.onclick = async () => {
         const msg = commitInput.value.trim();
@@ -3065,7 +3728,11 @@ async function renderScmView(container: HTMLElement) {
 }
 
 // Toast Notifications (Issue #30)
-function showToast(message: string, type: "info" | "warning" | "error" = "info", duration = 4000) {
+function showToast(
+  message: string,
+  type: "info" | "warning" | "error" = "info",
+  duration = 4000,
+) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
@@ -3081,7 +3748,9 @@ function showToast(message: string, type: "info" | "warning" | "error" = "info",
     <span style="cursor: pointer; color: #888; font-size: 14px;">×</span>
   `;
 
-  toast.querySelector("span:last-child")?.addEventListener("click", () => toast.remove());
+  toast
+    .querySelector("span:last-child")
+    ?.addEventListener("click", () => toast.remove());
 
   container.appendChild(toast);
 
@@ -3128,19 +3797,22 @@ async function loadWorkspaceFiles() {
       if (isHidden) return;
 
       const node = document.createElement("div");
-      const isCurrentFile = activeFilePath && (
-        file.path === activeFilePath ||
-        normPath === activeFilePath ||
-        activeFilePath.endsWith("/" + normPath) ||
-        activeFilePath.endsWith("\\" + file.path)
-      );
+      const isCurrentFile =
+        activeFilePath &&
+        (file.path === activeFilePath ||
+          normPath === activeFilePath ||
+          activeFilePath.endsWith("/" + normPath) ||
+          activeFilePath.endsWith("\\" + file.path));
       node.className = `tree-node ${file.is_dir ? "tree-folder" : "tree-file"} ${isCurrentFile ? "active" : ""}`;
       node.style.paddingLeft = `${file.depth * 14 + 6}px`;
 
-      const isCollapsed = collapsedFolders.has(file.path) || collapsedFolders.has(normPath);
+      const isCollapsed =
+        collapsedFolders.has(file.path) || collapsedFolders.has(normPath);
       const arrowIcon = file.is_dir ? (isCollapsed ? "▶" : "▼") : "";
-      const typeIcon = file.is_dir 
-        ? (isCollapsed ? "📁" : "📂")
+      const typeIcon = file.is_dir
+        ? isCollapsed
+          ? "📁"
+          : "📂"
         : getFileIcon(file.name);
 
       node.innerHTML = `
@@ -3171,7 +3843,10 @@ async function loadWorkspaceFiles() {
 
       if (file.is_dir) {
         node.addEventListener("click", () => {
-          if (collapsedFolders.has(file.path) || collapsedFolders.has(normPath)) {
+          if (
+            collapsedFolders.has(file.path) ||
+            collapsedFolders.has(normPath)
+          ) {
             collapsedFolders.delete(file.path);
             collapsedFolders.delete(normPath);
           } else {
@@ -3289,7 +3964,7 @@ function showExplorerContextMenu(x: number, y: number, file: FileEntry) {
           }
         },
       },
-      { type: "separator" }
+      { type: "separator" },
     );
   }
 
@@ -3307,7 +3982,7 @@ async function promptRenameFile(oldPath: string) {
 
   try {
     await invoke("rename_file", { oldPath: oldPath, newPath: newPath });
-    
+
     // もし開いていたタブがあればパスを更新
     if (openTabs.has(normOld)) {
       const tab = openTabs.get(normOld)!;
@@ -3408,7 +4083,10 @@ function setupResizers() {
 
     window.addEventListener("mousemove", (e) => {
       if (!isDragging) return;
-      const newHeight = Math.max(80, Math.min(window.innerHeight - e.clientY - 22, window.innerHeight * 0.6));
+      const newHeight = Math.max(
+        80,
+        Math.min(window.innerHeight - e.clientY - 22, window.innerHeight * 0.6),
+      );
       panelPart.style.height = `${newHeight}px`;
       editor1?.layout();
       editor2?.layout();
@@ -3491,13 +4169,16 @@ function setupQuickPick() {
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       if (quickPickItems.length > 0) {
-        quickPickSelectedIndex = (quickPickSelectedIndex + 1) % quickPickItems.length;
+        quickPickSelectedIndex =
+          (quickPickSelectedIndex + 1) % quickPickItems.length;
         renderQuickPickDom();
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (quickPickItems.length > 0) {
-        quickPickSelectedIndex = (quickPickSelectedIndex - 1 + quickPickItems.length) % quickPickItems.length;
+        quickPickSelectedIndex =
+          (quickPickSelectedIndex - 1 + quickPickItems.length) %
+          quickPickItems.length;
         renderQuickPickDom();
       }
     } else if (e.key === "Enter") {
@@ -3538,35 +4219,147 @@ async function fetchAndRenderQuickPick(query: string) {
   quickPickItems = [];
 
   const commands = [
-    { title: "View: Split Editor Right (エディターを右に分割)", shortcut: "", id: "split_right" },
-    { title: "View: Split Editor Down (エディターを下に分割)", shortcut: "", id: "split_down" },
-    { title: "View: Close Split Editor (分割を閉じる)", shortcut: "", id: "close_split" },
+    {
+      title: "View: Split Editor Right (エディターを右に分割)",
+      shortcut: "",
+      id: "split_right",
+    },
+    {
+      title: "View: Split Editor Down (エディターを下に分割)",
+      shortcut: "",
+      id: "split_down",
+    },
+    {
+      title: "View: Close Split Editor (分割を閉じる)",
+      shortcut: "",
+      id: "close_split",
+    },
     { title: "File: Save (ファイルの保存)", shortcut: "Ctrl+S", id: "save" },
-    { title: "File: Save All (すべて保存)", shortcut: "Ctrl+K S", id: "save_all" },
-    { title: "File: New File (新規ファイル作成)", shortcut: "Ctrl+N", id: "new_file" },
-    { title: "File: Open File Dialog (ネイティブファイルを開く)", shortcut: "Ctrl+O", id: "open_file_dialog" },
-    { title: "File: Open Folder Dialog (ネイティブフォルダーを開く)", shortcut: "Ctrl+K Ctrl+O", id: "open_folder_dialog" },
-    { title: "File: Open Recent Workspace (最近使ったワークスペースを開く)", shortcut: "", id: "open_recent_workspace" },
-    { title: "Workspace: Add Folder (フォルダーを追加)", shortcut: "", id: "add_workspace_folder" },
-    { title: "Workspace: Remove Active Folder (アクティブルートを削除)", shortcut: "", id: "remove_workspace_folder" },
-    { title: "Workspace: Select Folder (アクティブルートを選択)", shortcut: "", id: "select_workspace_folder" },
-    { title: "Workspace: Manage Trust (ワークスペース信頼を管理)", shortcut: "", id: "manage_workspace_trust" },
-    { title: "Workspace: Configure Excludes (除外規則を設定)", shortcut: "", id: "configure_workspace_excludes" },
-    { title: "File: Save As Dialog (名前を付けて保存)", shortcut: "Ctrl+Shift+S", id: "save_as_dialog" },
-    { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
-    { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
-    { title: "Terminal: New Terminal (新規ターミナル作成)", shortcut: "Ctrl+Shift+`", id: "new_terminal" },
-    { title: "Tasks: Run Task (タスクの実行)", shortcut: "", id: "run_workspace_task" },
-    { title: "Testing: Run Tests (テストを実行)", shortcut: "", id: "run_workspace_tests" },
-    { title: "Git: Open SCM View (ソース管理を開く)", shortcut: "Ctrl+Shift+G", id: "open_scm" },
-    { title: "Git: Switch Branch (ブランチ切り替え)", shortcut: "", id: "switch_branch" },
-    { title: "View: Show Explorer (エクスプローラーを開く)", shortcut: "Ctrl+Shift+E", id: "open_explorer" },
-    { title: "View: Show Search (検索を開く)", shortcut: "Ctrl+Shift+F", id: "open_search" },
-    { title: "View: Show Extensions (拡張機能を開く)", shortcut: "Ctrl+Shift+X", id: "open_extensions" },
-    { title: "Preferences: Open Settings (設定を開く)", shortcut: "Ctrl+,", id: "open_settings" },
-    { title: "Editor: Go to Definition (定義へ移動)", shortcut: "F12", id: "goto_def" },
-    { title: "Editor: Format Document (ドキュメントのフォーマット)", shortcut: "Shift+Alt+F", id: "format_doc" },
-    { title: "Editor: Close Active Tab (タブを閉じる)", shortcut: "Ctrl+W", id: "close_tab" },
+    {
+      title: "File: Save All (すべて保存)",
+      shortcut: "Ctrl+K S",
+      id: "save_all",
+    },
+    {
+      title: "File: New File (新規ファイル作成)",
+      shortcut: "Ctrl+N",
+      id: "new_file",
+    },
+    {
+      title: "File: Open File Dialog (ネイティブファイルを開く)",
+      shortcut: "Ctrl+O",
+      id: "open_file_dialog",
+    },
+    {
+      title: "File: Open Folder Dialog (ネイティブフォルダーを開く)",
+      shortcut: "Ctrl+K Ctrl+O",
+      id: "open_folder_dialog",
+    },
+    {
+      title: "File: Open Recent Workspace (最近使ったワークスペースを開く)",
+      shortcut: "",
+      id: "open_recent_workspace",
+    },
+    {
+      title: "Workspace: Add Folder (フォルダーを追加)",
+      shortcut: "",
+      id: "add_workspace_folder",
+    },
+    {
+      title: "Workspace: Remove Active Folder (アクティブルートを削除)",
+      shortcut: "",
+      id: "remove_workspace_folder",
+    },
+    {
+      title: "Workspace: Select Folder (アクティブルートを選択)",
+      shortcut: "",
+      id: "select_workspace_folder",
+    },
+    {
+      title: "Workspace: Manage Trust (ワークスペース信頼を管理)",
+      shortcut: "",
+      id: "manage_workspace_trust",
+    },
+    {
+      title: "Workspace: Configure Excludes (除外規則を設定)",
+      shortcut: "",
+      id: "configure_workspace_excludes",
+    },
+    {
+      title: "File: Save As Dialog (名前を付けて保存)",
+      shortcut: "Ctrl+Shift+S",
+      id: "save_as_dialog",
+    },
+    {
+      title: "View: Toggle Side Bar (サイドバー切替)",
+      shortcut: "Ctrl+B",
+      id: "toggle_sidebar",
+    },
+    {
+      title: "View: Toggle Terminal (ターミナル切替)",
+      shortcut: "Ctrl+J",
+      id: "toggle_terminal",
+    },
+    {
+      title: "Terminal: New Terminal (新規ターミナル作成)",
+      shortcut: "Ctrl+Shift+`",
+      id: "new_terminal",
+    },
+    {
+      title: "Tasks: Run Task (タスクの実行)",
+      shortcut: "",
+      id: "run_workspace_task",
+    },
+    {
+      title: "Testing: Run Tests (テストを実行)",
+      shortcut: "",
+      id: "run_workspace_tests",
+    },
+    {
+      title: "Git: Open SCM View (ソース管理を開く)",
+      shortcut: "Ctrl+Shift+G",
+      id: "open_scm",
+    },
+    {
+      title: "Git: Switch Branch (ブランチ切り替え)",
+      shortcut: "",
+      id: "switch_branch",
+    },
+    {
+      title: "View: Show Explorer (エクスプローラーを開く)",
+      shortcut: "Ctrl+Shift+E",
+      id: "open_explorer",
+    },
+    {
+      title: "View: Show Search (検索を開く)",
+      shortcut: "Ctrl+Shift+F",
+      id: "open_search",
+    },
+    {
+      title: "View: Show Extensions (拡張機能を開く)",
+      shortcut: "Ctrl+Shift+X",
+      id: "open_extensions",
+    },
+    {
+      title: "Preferences: Open Settings (設定を開く)",
+      shortcut: "Ctrl+,",
+      id: "open_settings",
+    },
+    {
+      title: "Editor: Go to Definition (定義へ移動)",
+      shortcut: "F12",
+      id: "goto_def",
+    },
+    {
+      title: "Editor: Format Document (ドキュメントのフォーマット)",
+      shortcut: "Shift+Alt+F",
+      id: "format_doc",
+    },
+    {
+      title: "Editor: Close Active Tab (タブを閉じる)",
+      shortcut: "Ctrl+W",
+      id: "close_tab",
+    },
   ];
 
   if (query.startsWith(">")) {
@@ -3611,8 +4404,9 @@ async function fetchAndRenderQuickPick(query: string) {
       const model = openTabs.get(activeFilePath)!.model;
       const text = model.getValue();
       const lines = text.split("\n");
-      const symRegex = /^\s*(fn|function|pub fn|class|struct|enum|interface|type|const|let|var|def)\s+([A-Za-z0-9_]+)/;
-      
+      const symRegex =
+        /^\s*(fn|function|pub fn|class|struct|enum|interface|type|const|let|var|def)\s+([A-Za-z0-9_]+)/;
+
       lines.forEach((line, idx) => {
         const m = line.match(symRegex);
         if (m) {
@@ -3634,7 +4428,11 @@ async function fetchAndRenderQuickPick(query: string) {
         }
       });
       if (quickPickItems.length === 0) {
-        quickPickItems.push({ id: "no_sym", title: "シンボルが見つかりませんでした", action: () => {} });
+        quickPickItems.push({
+          id: "no_sym",
+          title: "シンボルが見つかりませんでした",
+          action: () => {},
+        });
       }
     }
   } else {
@@ -3643,7 +4441,13 @@ async function fetchAndRenderQuickPick(query: string) {
       const files = await invoke<FileEntry[]>("list_workspace_files");
       const q = query.trim().toLowerCase();
       files
-        .filter((f) => !f.is_dir && (!q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)))
+        .filter(
+          (f) =>
+            !f.is_dir &&
+            (!q ||
+              f.name.toLowerCase().includes(q) ||
+              f.path.toLowerCase().includes(q)),
+        )
         .forEach((f) => {
           quickPickItems.push({
             id: f.path,
@@ -3720,7 +4524,8 @@ function executeCommand(id: string) {
       const lineStr = prompt("移動先の行番号を入力してください:");
       if (!lineStr) break;
       const lineNumber = parseInt(lineStr, 10);
-      const editor = activeEditorPane === 2 && isSplitActive ? editor2 : editor1;
+      const editor =
+        activeEditorPane === 2 && isSplitActive ? editor2 : editor1;
       if (!isNaN(lineNumber) && editor) {
         editor.revealLineInCenter(lineNumber);
         editor.setPosition({ lineNumber, column: 1 });
@@ -3777,16 +4582,24 @@ function executeCommand(id: string) {
       document.getElementById("status-branch")?.click();
       break;
     case "open_explorer":
-      document.querySelector<HTMLButtonElement>('[data-view="explorer"]')?.click();
+      document
+        .querySelector<HTMLButtonElement>('[data-view="explorer"]')
+        ?.click();
       break;
     case "open_search":
-      document.querySelector<HTMLButtonElement>('[data-view="search"]')?.click();
+      document
+        .querySelector<HTMLButtonElement>('[data-view="search"]')
+        ?.click();
       break;
     case "open_extensions":
-      document.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+      document
+        .querySelector<HTMLButtonElement>('[data-view="extensions"]')
+        ?.click();
       break;
     case "open_settings":
-      document.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+      document
+        .querySelector<HTMLButtonElement>('[data-view="settings"]')
+        ?.click();
       break;
     case "quick_open":
       openQuickPick(false);
@@ -3838,7 +4651,9 @@ async function openWorkspaceTestPicker() {
     }));
     quickPickSelectedIndex = 0;
     document.getElementById("quickpick-modal")?.classList.remove("hidden");
-    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
     if (input) {
       input.value = "";
       input.placeholder = "実行するテストスイートを選択";
@@ -3853,11 +4668,17 @@ async function openWorkspaceTestPicker() {
 
 async function runWorkspaceTestSuite(suite: TestSuite) {
   try {
-    const result = await invoke<TaskExecutionResult>("run_workspace_test_suite", { id: suite.id });
+    const result = await invoke<TaskExecutionResult>(
+      "run_workspace_test_suite",
+      { id: suite.id },
+    );
     const output = document.getElementById("output-container");
-    if (output) output.textContent = result.output || `${suite.label}: 出力はありません`;
+    if (output)
+      output.textContent = result.output || `${suite.label}: 出力はありません`;
     document.getElementById("panel-tab-output")?.click();
-    showStatusMessage(`${suite.label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`);
+    showStatusMessage(
+      `${suite.label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`,
+    );
   } catch (error) {
     console.error("Failed to run tests:", error);
     showToast(`テストを実行できませんでした: ${error}`, "error");
@@ -3868,7 +4689,10 @@ async function openWorkspaceTaskPicker() {
   try {
     const tasks = await invoke<TaskDefinition[]>("list_workspace_tasks");
     if (tasks.length === 0) {
-      showToast(".oxide/tasks.json または .vscode/tasks.json に実行可能なタスクがありません", "info");
+      showToast(
+        ".oxide/tasks.json または .vscode/tasks.json に実行可能なタスクがありません",
+        "info",
+      );
       return;
     }
     quickPickItems = tasks.map((task) => ({
@@ -3879,7 +4703,9 @@ async function openWorkspaceTaskPicker() {
     }));
     quickPickSelectedIndex = 0;
     const modal = document.getElementById("quickpick-modal");
-    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
     modal?.classList.remove("hidden");
     if (input) {
       input.value = "";
@@ -3895,11 +4721,16 @@ async function openWorkspaceTaskPicker() {
 
 async function runWorkspaceTask(label: string) {
   try {
-    const result = await invoke<TaskExecutionResult>("run_workspace_task", { label });
+    const result = await invoke<TaskExecutionResult>("run_workspace_task", {
+      label,
+    });
     const output = document.getElementById("output-container");
-    if (output) output.textContent = result.output || `${label}: 出力はありません`;
+    if (output)
+      output.textContent = result.output || `${label}: 出力はありません`;
     document.getElementById("panel-tab-output")?.click();
-    showStatusMessage(`${label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`);
+    showStatusMessage(
+      `${label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`,
+    );
   } catch (error) {
     console.error("Failed to run workspace task:", error);
     showToast(`タスクを実行できませんでした: ${error}`, "error");
@@ -3908,7 +4739,8 @@ async function runWorkspaceTask(label: string) {
 
 function updateWorkspaceDisplay(workspace: WorkspaceInfo) {
   const workspaceName = document.getElementById("workspace-name");
-  const isTrusted = workspaceTrust?.root === workspace.root && workspaceTrust.trusted;
+  const isTrusted =
+    workspaceTrust?.root === workspace.root && workspaceTrust.trusted;
   const trustLabel = isTrusted ? "信頼済み" : "未信頼";
   if (workspaceName) {
     workspaceName.textContent = `${workspace.name} (${trustLabel})`;
@@ -3932,8 +4764,13 @@ async function confirmWorkspaceTrust() {
     "このフォルダーは未信頼です。ターミナル、タスク、言語サーバー、拡張機能の実行はブロックされています。信頼しますか？",
   );
   if (trusted) {
-    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", { trusted: true });
-    updateWorkspaceDisplay({ root: workspaceRoot, name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace" });
+    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
+      trusted: true,
+    });
+    updateWorkspaceDisplay({
+      root: workspaceRoot,
+      name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
+    });
     showStatusMessage("ワークスペースを信頼しました");
   }
 }
@@ -3943,7 +4780,10 @@ async function switchWorkspace(workspace: WorkspaceInfo) {
   try {
     await invoke<number>("lsp_stop_all");
   } catch (e) {
-    console.warn("Failed to stop language servers while switching workspace:", e);
+    console.warn(
+      "Failed to stop language servers while switching workspace:",
+      e,
+    );
   }
   workspaceRoot = workspace.root;
   await refreshWorkspaceState();
@@ -3972,7 +4812,9 @@ async function openNativeFolderDialog() {
       multiple: false,
     });
     if (selected && typeof selected === "string") {
-      const workspace = await invoke<WorkspaceInfo>("set_workspace_root", { path: selected });
+      const workspace = await invoke<WorkspaceInfo>("set_workspace_root", {
+        path: selected,
+      });
       await switchWorkspace(workspace);
     }
   } catch (e) {
@@ -3994,13 +4836,17 @@ async function openRecentWorkspacePicker() {
       title: `📁 ${workspace.name}`,
       subtitle: workspace.root,
       action: async () => {
-        const selected = await invoke<WorkspaceInfo>("set_workspace_root", { path: workspace.root });
+        const selected = await invoke<WorkspaceInfo>("set_workspace_root", {
+          path: workspace.root,
+        });
         await switchWorkspace(selected);
       },
     }));
     quickPickSelectedIndex = 0;
     const modal = document.getElementById("quickpick-modal");
-    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
     modal?.classList.remove("hidden");
     if (input) {
       input.value = "";
@@ -4016,7 +4862,8 @@ async function openRecentWorkspacePicker() {
 
 async function toggleWorkspaceTrust() {
   try {
-    const currentTrust = workspaceTrust || (await invoke<WorkspaceTrust>("get_workspace_trust"));
+    const currentTrust =
+      workspaceTrust || (await invoke<WorkspaceTrust>("get_workspace_trust"));
     const nextTrusted = !currentTrust.trusted;
     if (
       nextTrusted &&
@@ -4027,12 +4874,18 @@ async function toggleWorkspaceTrust() {
       return;
     }
 
-    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", { trusted: nextTrusted });
+    workspaceTrust = await invoke<WorkspaceTrust>("set_workspace_trust", {
+      trusted: nextTrusted,
+    });
     updateWorkspaceDisplay({
       root: workspaceRoot,
       name: workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace",
     });
-    showStatusMessage(nextTrusted ? "ワークスペースを信頼しました" : "ワークスペースの信頼を取り消しました");
+    showStatusMessage(
+      nextTrusted
+        ? "ワークスペースを信頼しました"
+        : "ワークスペースの信頼を取り消しました",
+    );
   } catch (error) {
     console.error("Failed to update workspace trust:", error);
     showToast(`ワークスペースの信頼を更新できませんでした: ${error}`, "error");
@@ -4044,11 +4897,16 @@ async function addWorkspaceFolder() {
     const selected = await openDialog({ directory: true, multiple: false });
     if (!selected || typeof selected !== "string") return;
 
-    workspaceFolders = await invoke<WorkspaceInfo[]>("add_workspace_folder", { path: selected });
+    workspaceFolders = await invoke<WorkspaceInfo[]>("add_workspace_folder", {
+      path: selected,
+    });
     showStatusMessage(`ワークスペースフォルダーを追加しました: ${selected}`);
   } catch (error) {
     console.error("Failed to add workspace folder:", error);
-    showToast(`ワークスペースフォルダーを追加できませんでした: ${error}`, "error");
+    showToast(
+      `ワークスペースフォルダーを追加できませんでした: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -4057,17 +4915,31 @@ async function removeActiveWorkspaceFolder() {
     showToast("最後のワークスペースフォルダーは削除できません", "error");
     return;
   }
-  if (!confirm(`アクティブなワークスペースフォルダーを削除しますか？\n${workspaceRoot}`)) return;
+  if (
+    !confirm(
+      `アクティブなワークスペースフォルダーを削除しますか？\n${workspaceRoot}`,
+    )
+  )
+    return;
 
   try {
-    workspaceFolders = await invoke<WorkspaceInfo[]>("remove_workspace_folder", { path: workspaceRoot });
+    workspaceFolders = await invoke<WorkspaceInfo[]>(
+      "remove_workspace_folder",
+      { path: workspaceRoot },
+    );
     const root = await invoke<string>("get_workspace_path");
-    const nextWorkspace = workspaceFolders.find((folder) => folder.root === root);
-    if (!nextWorkspace) throw new Error("次のアクティブなワークスペースが見つかりません");
+    const nextWorkspace = workspaceFolders.find(
+      (folder) => folder.root === root,
+    );
+    if (!nextWorkspace)
+      throw new Error("次のアクティブなワークスペースが見つかりません");
     await switchWorkspace(nextWorkspace);
   } catch (error) {
     console.error("Failed to remove workspace folder:", error);
-    showToast(`ワークスペースフォルダーを削除できませんでした: ${error}`, "error");
+    showToast(
+      `ワークスペースフォルダーを削除できませんでした: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -4077,15 +4949,23 @@ async function openWorkspaceFolderPicker() {
     quickPickItems = workspaceFolders.map((folder) => ({
       id: `workspace-folder:${folder.root}`,
       title: `フォルダー: ${folder.name}`,
-      subtitle: folder.root === workspaceRoot ? `${folder.root} (アクティブ)` : folder.root,
+      subtitle:
+        folder.root === workspaceRoot
+          ? `${folder.root} (アクティブ)`
+          : folder.root,
       action: async () => {
-        const selected = await invoke<WorkspaceInfo>("select_workspace_folder", { path: folder.root });
+        const selected = await invoke<WorkspaceInfo>(
+          "select_workspace_folder",
+          { path: folder.root },
+        );
         await switchWorkspace(selected);
       },
     }));
     quickPickSelectedIndex = 0;
     const modal = document.getElementById("quickpick-modal");
-    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement | null;
     modal?.classList.remove("hidden");
     if (input) {
       input.value = "";
@@ -4095,7 +4975,10 @@ async function openWorkspaceFolderPicker() {
     renderQuickPickDom();
   } catch (error) {
     console.error("Failed to select workspace folder:", error);
-    showToast(`ワークスペースフォルダーを読み込めませんでした: ${error}`, "error");
+    showToast(
+      `ワークスペースフォルダーを読み込めませんでした: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -4128,7 +5011,10 @@ async function configureWorkspaceExcludes() {
     showStatusMessage("ワークスペースの除外規則を更新しました");
   } catch (error) {
     console.error("Failed to update workspace excludes:", error);
-    showToast(`ワークスペースの除外規則を更新できませんでした: ${error}`, "error");
+    showToast(
+      `ワークスペースの除外規則を更新できませんでした: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -4140,7 +5026,10 @@ async function saveNativeFileDialog() {
       defaultPath: tab.name,
     });
     if (savePath) {
-      await invoke("write_file_content", { path: savePath, content: tab.model.getValue() });
+      await invoke("write_file_content", {
+        path: savePath,
+        content: tab.model.getValue(),
+      });
       tab.isDirty = false;
       updateTabBar();
       showStatusMessage(`保存完了: ${savePath}`);
@@ -4162,7 +5051,16 @@ function setupStatusBarInteractions() {
 
   statusLanguage?.addEventListener("click", () => {
     quickPickItems = [
-      "rust", "typescript", "javascript", "python", "go", "html", "css", "json", "markdown", "plaintext"
+      "rust",
+      "typescript",
+      "javascript",
+      "python",
+      "go",
+      "html",
+      "css",
+      "json",
+      "markdown",
+      "plaintext",
     ].map((lang) => ({
       id: lang,
       title: lang.toUpperCase(),
@@ -4181,9 +5079,30 @@ function setupStatusBarInteractions() {
 
   statusIndent?.addEventListener("click", () => {
     quickPickItems = [
-      { id: "s2", title: "インデント: スペース 2", action: () => { editor1?.updateOptions({ tabSize: 2 }); if (statusIndent) statusIndent.textContent = "スペース: 2"; } },
-      { id: "s4", title: "インデント: スペース 4", action: () => { editor1?.updateOptions({ tabSize: 4 }); if (statusIndent) statusIndent.textContent = "スペース: 4"; } },
-      { id: "t4", title: "インデント: タブ 4", action: () => { editor1?.updateOptions({ tabSize: 4, insertSpaces: false }); if (statusIndent) statusIndent.textContent = "タブ: 4"; } },
+      {
+        id: "s2",
+        title: "インデント: スペース 2",
+        action: () => {
+          editor1?.updateOptions({ tabSize: 2 });
+          if (statusIndent) statusIndent.textContent = "スペース: 2";
+        },
+      },
+      {
+        id: "s4",
+        title: "インデント: スペース 4",
+        action: () => {
+          editor1?.updateOptions({ tabSize: 4 });
+          if (statusIndent) statusIndent.textContent = "スペース: 4";
+        },
+      },
+      {
+        id: "t4",
+        title: "インデント: タブ 4",
+        action: () => {
+          editor1?.updateOptions({ tabSize: 4, insertSpaces: false });
+          if (statusIndent) statusIndent.textContent = "タブ: 4";
+        },
+      },
     ];
     openQuickPick(false);
     renderQuickPickDom();
@@ -4191,9 +5110,21 @@ function setupStatusBarInteractions() {
 
   statusEncoding?.addEventListener("click", () => {
     quickPickItems = [
-      { id: "utf8", title: "UTF-8 (エンコード付きで再度開く)", action: () => showStatusMessage("エンコーディング: UTF-8") },
-      { id: "sjis", title: "Shift-JIS", action: () => showStatusMessage("エンコーディング: Shift-JIS") },
-      { id: "euc", title: "EUC-JP", action: () => showStatusMessage("エンコーディング: EUC-JP") },
+      {
+        id: "utf8",
+        title: "UTF-8 (エンコード付きで再度開く)",
+        action: () => showStatusMessage("エンコーディング: UTF-8"),
+      },
+      {
+        id: "sjis",
+        title: "Shift-JIS",
+        action: () => showStatusMessage("エンコーディング: Shift-JIS"),
+      },
+      {
+        id: "euc",
+        title: "EUC-JP",
+        action: () => showStatusMessage("エンコーディング: EUC-JP"),
+      },
     ];
     openQuickPick(false);
     renderQuickPickDom();
@@ -4201,8 +5132,20 @@ function setupStatusBarInteractions() {
 
   statusEol?.addEventListener("click", () => {
     quickPickItems = [
-      { id: "crlf", title: "CRLF (\\r\\n)", action: () => { if (statusEol) statusEol.textContent = "CRLF"; } },
-      { id: "lf", title: "LF (\\n)", action: () => { if (statusEol) statusEol.textContent = "LF"; } },
+      {
+        id: "crlf",
+        title: "CRLF (\\r\\n)",
+        action: () => {
+          if (statusEol) statusEol.textContent = "CRLF";
+        },
+      },
+      {
+        id: "lf",
+        title: "LF (\\n)",
+        action: () => {
+          if (statusEol) statusEol.textContent = "LF";
+        },
+      },
     ];
     openQuickPick(false);
     renderQuickPickDom();
@@ -4210,7 +5153,9 @@ function setupStatusBarInteractions() {
 
   statusLineCol?.addEventListener("click", () => {
     openQuickPick(false);
-    const input = document.getElementById("quickpick-input") as HTMLInputElement;
+    const input = document.getElementById(
+      "quickpick-input",
+    ) as HTMLInputElement;
     if (input) {
       input.value = ":";
       fetchAndRenderQuickPick(":");
@@ -4227,7 +5172,9 @@ function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
     const target = e.target as HTMLElement | null;
     const isTextInput =
-      (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) &&
+      (target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable) &&
       !target?.classList.contains("inputarea");
     const command = isTextInput ? null : commandForEvent(e);
     if (command) {
@@ -4271,27 +5218,32 @@ window.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-
 function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
   const modal = document.getElementById("ext-detail-modal");
   if (!modal) return;
-  
+
   const icon = document.getElementById("ext-detail-icon") as HTMLImageElement;
   const title = document.getElementById("ext-detail-title");
   const id = document.getElementById("ext-detail-id");
   const desc = document.getElementById("ext-detail-desc");
   const readme = document.getElementById("ext-detail-readme");
-  
-  const installBtn = document.getElementById("ext-detail-install-btn") as HTMLButtonElement;
-  const uninstallBtn = document.getElementById("ext-detail-uninstall-btn") as HTMLButtonElement;
-  const closeBtn = document.getElementById("ext-detail-close") as HTMLButtonElement;
-  
+
+  const installBtn = document.getElementById(
+    "ext-detail-install-btn",
+  ) as HTMLButtonElement;
+  const uninstallBtn = document.getElementById(
+    "ext-detail-uninstall-btn",
+  ) as HTMLButtonElement;
+  const closeBtn = document.getElementById(
+    "ext-detail-close",
+  ) as HTMLButtonElement;
+
   icon.src = ext.icon_url || "https://via.placeholder.com/72?text=Ext";
   if (title) title.textContent = ext.display_name || ext.name;
   if (id) id.textContent = `${ext.namespace}.${ext.name} v${ext.version}`;
   if (desc) desc.textContent = ext.description || "";
   if (readme) readme.innerHTML = "Fetching README...";
-  
+
   if (isInstalled) {
     installBtn.classList.add("hidden");
     uninstallBtn.classList.remove("hidden");
@@ -4301,7 +5253,7 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
     installBtn.textContent = "インストール";
     installBtn.disabled = false;
   }
-  
+
   installBtn.onclick = async () => {
     installBtn.textContent = "インストール中...";
     installBtn.disabled = true;
@@ -4317,7 +5269,7 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
       installBtn.textContent = "✓ インストール済み";
       uninstallBtn.classList.remove("hidden");
       installBtn.classList.add("hidden");
-      
+
       if (ext.name.includes("rust")) ensureLspServerStarted("rust");
       if (ext.name.includes("python")) ensureLspServerStarted("python");
       if (ext.name.includes("go")) ensureLspServerStarted("go");
@@ -4327,13 +5279,13 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
       installBtn.disabled = false;
     }
   };
-  
+
   uninstallBtn.onclick = async () => {
     uninstallBtn.textContent = "アンインストール中...";
     uninstallBtn.disabled = true;
     try {
       const res = await invoke<string>("uninstall_extension", {
-        id: `${ext.namespace}.${ext.name}`
+        id: `${ext.namespace}.${ext.name}`,
       });
       showStatusMessage(res);
       installBtn.classList.remove("hidden");
@@ -4344,28 +5296,31 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
       uninstallBtn.disabled = false;
     }
   };
-  
+
   closeBtn.onclick = () => {
     modal.classList.add("hidden");
   };
-  
+
   modal.classList.remove("hidden");
-  
+
   if (ext.url) {
-    fetch(ext.url).then(r => r.json()).then(data => {
-      if (readme) {
-        readme.innerHTML = `<div style="padding: 10px;">
+    fetch(ext.url)
+      .then((r) => r.json())
+      .then((data) => {
+        if (readme) {
+          readme.innerHTML = `<div style="padding: 10px;">
           <h3>${ext.display_name || ext.name}</h3>
-          <p>${ext.description || ''}</p>
+          <p>${ext.description || ""}</p>
           <hr>
-          <p>Repository: ${data.repository || 'N/A'}</p>
-          <p>License: ${data.license || 'N/A'}</p>
+          <p>Repository: ${data.repository || "N/A"}</p>
+          <p>License: ${data.license || "N/A"}</p>
           <p>Downloads: ${ext.download_count}</p>
         </div>`;
-      }
-    }).catch(() => {
-      if (readme) readme.innerHTML = "Failed to load details.";
-    });
+        }
+      })
+      .catch(() => {
+        if (readme) readme.innerHTML = "Failed to load details.";
+      });
   } else {
     if (readme) readme.innerHTML = "No additional details available.";
   }
