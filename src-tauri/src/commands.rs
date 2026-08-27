@@ -1228,7 +1228,10 @@ mod tests {
             "Expected file to be string.rs, got: {}",
             match_res.file_path
         );
-        assert!(match_res.line_number > 0, "Expected a positive source line number");
+        assert!(
+            match_res.line_number > 0,
+            "Expected a positive source line number"
+        );
         println!(
             "✔ Found String definition at: {}:{}",
             match_res.file_path, match_res.line_number

@@ -4788,7 +4788,9 @@ async function switchWorkspace(workspace: WorkspaceInfo) {
   }
   workspaceRoot = workspace.root;
   await refreshWorkspaceState();
-  await reloadSettingsPersistence(workspaceRoot).catch((error) => console.warn("Failed to reload editor configuration:", error));
+  await reloadSettingsPersistence(workspaceRoot).catch((error) =>
+    console.warn("Failed to reload editor configuration:", error),
+  );
   applyStoredSettings();
   activeLspServers.clear();
   collapsedFolders.clear();
