@@ -23,7 +23,7 @@
 | 統合ターミナル | **部分実装** | `portable-pty` と xterm.js を利用した PTY の生成、入出力、リサイズを提供する。名前付きタスク実行基盤は別途対応する。 | `src-tauri/src/pty_manager.rs`, [Issue #40](https://github.com/applyuser160/editor/issues/40) |
 | Git 操作 | **部分実装** | ステータス、ブランチ、ステージング、コミット、プッシュ、プルのコマンドを提供する。高度な差分・マージ体験は未実装である。 | `src-tauri/src/commands.rs`, [Issue #47](https://github.com/applyuser160/editor/issues/47) |
 | LSP 連携 | **部分実装** | 言語サーバーの起動・停止と JSON-RPC の通知・リクエストを提供する。ライフサイクル、診断、全言語互換性は継続対応である。 | `src-tauri/src/lsp_client.rs` |
-| VSIX 管理 | **部分実装** | VSIX のサイズ・パス・マニフェスト検証、展開、永続化、有効・無効、削除を提供する。拡張機能 API の実行は有効化していない。 | `src-tauri/src/extension_host.rs`, [Issue #38](https://github.com/applyuser160/editor/issues/38) |
+| VSIX 管理・拡張ホスト | **部分実装** | VSIX のサイズ・パス・マニフェスト検証、展開、永続化、有効・無効、削除に加え、信頼済みワークスペースでのNode.js拡張ホストを提供する。`commands`、通知、読み取り専用`workspace.fs`、補完、ホバーは試験対応であり、対応範囲は [Extension API v0.1](extension-api-v0.1.md) に限定される。 | `src-tauri/src/extension_host.rs`, `extension-host/host.mjs`, [Issue #38](https://github.com/applyuser160/editor/issues/38) |
 | 設定・キーバインド | **部分実装** | テーマ、フォントサイズ、タブ幅、ミニマップ、キーバインド、プロファイルを `localStorage` に保存する。外部編集可能な JSON ファイル永続化と資格情報ストアは未実装である。 | `src/settings.ts`, [Issue #63](https://github.com/applyuser160/editor/issues/63) |
 | リリース | **部分実装** | タグ向けの Linux リリースワークフローが存在する。各 OS の署名、更新、配布の完全なパイプラインは未実装である。 | `.github/workflows/` , [Issue #48](https://github.com/applyuser160/editor/issues/48) |
 
@@ -34,13 +34,13 @@
 | WGPU / Vello によるネイティブ GPU レンダリング | **計画** | 現行 UI は Tauri WebView と Monaco Editor を使用する。`wgpu` および `vello` は依存関係に含まれない。 |
 | `ropey` によるネイティブテキストバッファ | **計画** | 現行の編集コアは Monaco Editor であり、`ropey` は依存関係に含まれない。 |
 | Tree-sitter による構文解析 | **計画** | `tree-sitter` および言語グラマーは依存関係に含まれない。 |
-| WASM / WASI 拡張機能サンドボックス | **計画** | Wasmtime / Extism 等のランタイムは依存関係に含まれず、拡張機能 API 実行は有効化していない。 |
-| VS Code 拡張機能 API との完全互換 | **計画** | VSIX の取得・管理と、`vscode.*` API の実行・互換性は別の課題である。 |
+| WASM / WASI 拡張機能サンドボックス | **計画** | Wasmtime / Extism 等のランタイムは依存関係に含まれない。現在はNode.js別プロセスを用いる試験的なAPI互換層であり、WASM隔離は未実装である。 |
+| VS Code 拡張機能 API との完全互換 | **計画** | `commands`、通知、読み取り専用`workspace.fs`、補完、ホバーのみが試験対応で、Webview、書込み、デバッグ、リモート、タスク等は未実装である。 |
 | VS Code 設定の完全インポート互換 | **計画** | 現行設定形式は Oxide Editor 独自の `localStorage` 形式である。 |
 
 ## 検証状況
 
-性能、メモリ使用量、起動時間、対応 OS、長時間安定性、拡張機能隔離、および VS Code 互換性について、リポジトリには受け入れ判断に足る再現可能なベンチマークまたは E2E 検証手順がまだないため、**未検証**です。数値や互換性を外部に示す前に、測定環境、入力データ、実行手順、結果、および測定対象のコミットを公開してください。
+性能、メモリ使用量、起動時間、対応 OS、長時間安定性、WASMによる拡張機能隔離、および包括的な VS Code 互換性は、再現可能なベンチマークまたは十分なE2E検証がないため、**未検証**です。Node.js拡張ホストについては、同梱fixtureにより起動、activation、コマンド、読み取り専用RPC、補完、ホバーを検証する手順がありますが、任意の外部VSIXの互換性・安全性を保証するものではありません。数値や互換性を外部に示す前に、測定環境、入力データ、実行手順、結果、および測定対象のコミットを公開してください。
 
 ## 追跡
 

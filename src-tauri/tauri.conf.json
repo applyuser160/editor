@@ -23,5 +23,10 @@
       "csp": "default-src 'self'; connect-src 'self' https://open-vsx.org https://*.open-vsx.org; img-src 'self' data: https://open-vsx.org https://*.open-vsx.org; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
     }
   },
+  "bundle": {
+    "resources": {
+      "../extension-host/host.mjs": "extension-host/host.mjs"
+    }
+  },
   "plugins": {}
 }
