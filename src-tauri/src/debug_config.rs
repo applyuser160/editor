@@ -56,7 +56,7 @@ pub fn load_configurations(workspace_root: &Path) -> Result<Vec<DebugConfigurati
         return Ok(file.configurations);
     }
 
-    Ok(default_configurations(workspace_root))
+    Ok(Vec::new())
 }
 
 pub fn validate_configuration(
@@ -79,8 +79,8 @@ pub fn validate_configuration(
     }
     if let Some(program) = &configuration.program {
         let path = resolve_workspace_path(workspace_root, program)?;
-        if !path.exists() {
-            return Err(format!("Debug program does not exist: {}", path.display()));
+        if !path.is_file() {
+            return Err(format!("Debug program is not a readable file: {}", path.display()));
         }
     }
     if let Some(cwd) = &configuration.cwd {
@@ -93,19 +93,6 @@ pub fn validate_configuration(
         }
     }
     Ok(())
-}
-
-pub fn default_configurations(workspace_root: &Path) -> Vec<DebugConfiguration> {
-    let cargo_program = workspace_root.join("target/debug");
-    vec![DebugConfiguration {
-        name: "Rust: Debug executable".to_string(),
-        adapter_type: "lldb".to_string(),
-        request: DebugRequest::Launch,
-        program: Some(cargo_program.to_string_lossy().to_string()),
-        cwd: Some(workspace_root.to_string_lossy().to_string()),
-        args: Vec::new(),
-        env: BTreeMap::new(),
-    }]
 }
 
 fn resolve_workspace_path(workspace_root: &Path, raw_path: &str) -> Result<PathBuf, String> {

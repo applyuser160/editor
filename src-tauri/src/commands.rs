@@ -1,3 +1,5 @@
+use crate::debug_config::{self, DebugConfiguration};
+use crate::debug_session::{self, DebugSessionState, SourceBreakpoint};
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
@@ -9,7 +11,7 @@ use crate::workspace::{
     WorkspaceTrust,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -1207,6 +1209,134 @@ pub fn has_credential(service: String, account: String) -> Result<bool, String> 
 #[tauri::command]
 pub fn delete_credential(service: String, account: String) -> Result<(), String> {
     settings_store::delete_credential(&service, &account)
+}
+
+#[tauri::command]
+pub fn debug_list_configurations(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<DebugConfiguration>, String> {
+    debug_config::load_configurations(&state.root())
+}
+
+#[tauri::command]
+pub fn debug_check_adapter(adapter_type: String) -> Result<debug_session::AdapterStatus, String> {
+    debug_session::check_adapter(&adapter_type)
+}
+
+#[tauri::command]
+pub fn debug_start_session(
+    app: AppHandle,
+    state: State<'_, DebugSessionState>,
+    workspace: State<'_, WorkspaceState>,
+    configuration_name: String,
+    breakpoints: Vec<SourceBreakpoint>,
+) -> Result<(), String> {
+    let configurations = debug_config::load_configurations(&workspace.root())?;
+    let configuration = configurations
+        .into_iter()
+        .find(|candidate| candidate.name == configuration_name)
+        .ok_or_else(|| format!("Debug configuration not found: {configuration_name}"))?;
+    debug_config::validate_configuration(&configuration, &workspace.root())?;
+    state.start(app, configuration, breakpoints)
+}
+
+#[tauri::command]
+pub fn debug_stop_session(state: State<'_, DebugSessionState>) -> Result<(), String> {
+    state.stop()
+}
+
+#[tauri::command]
+pub fn debug_set_breakpoints(
+    state: State<'_, DebugSessionState>,
+    source: String,
+    lines: Vec<u32>,
+) -> Result<Value, String> {
+    state.require_session()?.set_breakpoints(&SourceBreakpoint { source, lines })
+}
+
+#[tauri::command]
+pub fn debug_continue(
+    state: State<'_, DebugSessionState>,
+    thread_id: Option<i64>,
+) -> Result<Value, String> {
+    state.require_session()?.request("continue", json!({ "threadId": thread_id.unwrap_or(0) }))
+}
+
+#[tauri::command]
+pub fn debug_next(
+    state: State<'_, DebugSessionState>,
+    thread_id: Option<i64>,
+) -> Result<Value, String> {
+    state.require_session()?.request("next", json!({ "threadId": thread_id.unwrap_or(0) }))
+}
+
+#[tauri::command]
+pub fn debug_step_in(
+    state: State<'_, DebugSessionState>,
+    thread_id: Option<i64>,
+) -> Result<Value, String> {
+    state.require_session()?.request("stepIn", json!({ "threadId": thread_id.unwrap_or(0) }))
+}
+
+#[tauri::command]
+pub fn debug_step_out(
+    state: State<'_, DebugSessionState>,
+    thread_id: Option<i64>,
+) -> Result<Value, String> {
+    state.require_session()?.request("stepOut", json!({ "threadId": thread_id.unwrap_or(0) }))
+}
+
+#[tauri::command]
+pub fn debug_pause(
+    state: State<'_, DebugSessionState>,
+    thread_id: Option<i64>,
+) -> Result<Value, String> {
+    state.require_session()?.request("pause", json!({ "threadId": thread_id.unwrap_or(0) }))
+}
+
+#[tauri::command]
+pub fn debug_threads(state: State<'_, DebugSessionState>) -> Result<Value, String> {
+    state.require_session()?.request("threads", json!({}))
+}
+
+#[tauri::command]
+pub fn debug_stack_trace(
+    state: State<'_, DebugSessionState>,
+    thread_id: i64,
+) -> Result<Value, String> {
+    state.require_session()?.request("stackTrace", json!({ "threadId": thread_id }))
+}
+
+#[tauri::command]
+pub fn debug_scopes(
+    state: State<'_, DebugSessionState>,
+    frame_id: i64,
+) -> Result<Value, String> {
+    state.require_session()?.request("scopes", json!({ "frameId": frame_id }))
+}
+
+#[tauri::command]
+pub fn debug_variables(
+    state: State<'_, DebugSessionState>,
+    variables_reference: i64,
+) -> Result<Value, String> {
+    state.require_session()?.request("variables", json!({ "variablesReference": variables_reference }))
+}
+
+#[tauri::command]
+pub fn debug_evaluate(
+    state: State<'_, DebugSessionState>,
+    expression: String,
+    frame_id: Option<i64>,
+) -> Result<Value, String> {
+    if expression.trim().is_empty() {
+        return Err("Watch expression must not be empty".to_string());
+    }
+    state.require_session()?.request("evaluate", json!({
+        "expression": expression,
+        "frameId": frame_id,
+        "context": "repl"
+    }))
 }
 
 #[cfg(test)]

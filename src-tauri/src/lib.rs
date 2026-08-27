@@ -1,4 +1,6 @@
 pub mod commands;
+pub mod debug_config;
+pub mod debug_session;
 pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
@@ -8,6 +10,7 @@ pub mod task_runner;
 pub mod test_runner;
 pub mod workspace;
 
+use debug_session::DebugSessionState;
 use extension_host::ExtensionHostState;
 use file_watcher::FileWatcherManager;
 use lsp_client::LspState;
@@ -15,6 +18,7 @@ use pty_manager::PtyState;
 use workspace::WorkspaceState;
 
 pub fn run() {
+    let debug_session_state = DebugSessionState::new();
     let pty_state = PtyState::new();
     let ext_state = ExtensionHostState::new();
     let lsp_state = LspState::new();
@@ -22,6 +26,7 @@ pub fn run() {
     let initial_workspace = workspace_state.root();
 
     tauri::Builder::default()
+        .manage(debug_session_state)
         .manage(pty_state)
         .manage(ext_state)
         .manage(lsp_state)
@@ -90,7 +95,22 @@ pub fn run() {
             commands::migrate_editor_configuration,
             commands::store_credential,
             commands::has_credential,
-            commands::delete_credential
+            commands::delete_credential,
+            commands::debug_list_configurations,
+            commands::debug_check_adapter,
+            commands::debug_start_session,
+            commands::debug_stop_session,
+            commands::debug_set_breakpoints,
+            commands::debug_continue,
+            commands::debug_next,
+            commands::debug_step_in,
+            commands::debug_step_out,
+            commands::debug_pause,
+            commands::debug_threads,
+            commands::debug_stack_trace,
+            commands::debug_scopes,
+            commands::debug_variables,
+            commands::debug_evaluate
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Editor Tauri application");
