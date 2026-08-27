@@ -7,26 +7,28 @@
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
+  <a class="skip-link" href="#main-area" data-i18n="skip.main">メイン編集領域へ移動</a>
+  <div id="accessibility-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
   <!-- 1. Custom Title Bar (VS Code Dark+ Standard) -->
   <header id="titlebar">
     <div class="titlebar-left">
       <span class="app-icon">🦀</span>
       <span class="app-title">Oxide Editor</span>
       <nav class="menu-bar" id="top-menu-bar" aria-label="メインメニュー">
-        <button class="menu-btn" data-menu="file">ファイル (File)</button>
-        <button class="menu-btn" data-menu="edit">編集 (Edit)</button>
-        <button class="menu-btn" data-menu="selection">選択 (Selection)</button>
-        <button class="menu-btn" data-menu="view">表示 (View)</button>
-        <button class="menu-btn" data-menu="go">移動 (Go)</button>
-        <button class="menu-btn" data-menu="run">実行 (Run)</button>
-        <button class="menu-btn" data-menu="terminal">ターミナル (Terminal)</button>
-        <button class="menu-btn" data-menu="help">ヘルプ (Help)</button>
+        <button class="menu-btn" data-menu="file" data-i18n="menu.file">ファイル (File)</button>
+        <button class="menu-btn" data-menu="edit" data-i18n="menu.edit">編集 (Edit)</button>
+        <button class="menu-btn" data-menu="selection" data-i18n="menu.selection">選択 (Selection)</button>
+        <button class="menu-btn" data-menu="view" data-i18n="menu.view">表示 (View)</button>
+        <button class="menu-btn" data-menu="go" data-i18n="menu.go">移動 (Go)</button>
+        <button class="menu-btn" data-menu="run" data-i18n="menu.run">実行 (Run)</button>
+        <button class="menu-btn" data-menu="terminal" data-i18n="menu.terminal">ターミナル (Terminal)</button>
+        <button class="menu-btn" data-menu="help" data-i18n="menu.help">ヘルプ (Help)</button>
       </nav>
     </div>
     <div class="titlebar-center">
       <button class="quickopen-btn" id="trigger-quickopen">
         <span>🔍</span>
-        <span class="quickopen-placeholder">Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)</span>
+        <span class="quickopen-placeholder" data-i18n="quickopen.placeholder">Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)</span>
       </button>
     </div>
     <div class="titlebar-right">
@@ -42,13 +44,13 @@
   <div id="workbench">
     <!-- Activity Bar -->
     <aside id="activity-bar" aria-label="アクティビティバー">
-      <button class="activity-btn active" data-view="explorer" title="エクスプローラー (Ctrl+Shift+E)">📁</button>
-      <button class="activity-btn" data-view="search" title="検索 (Ctrl+Shift+F)">🔍</button>
-      <button class="activity-btn" data-view="scm" title="ソース管理 (Ctrl+Shift+G)">🌿</button>
-      <button class="activity-btn" data-view="debug" title="実行とデバッグ">▷</button>
-      <button class="activity-btn" data-view="extensions" title="拡張機能 (Open VSX Marketplace) (Ctrl+Shift+X)">🧩</button>
+      <button class="activity-btn active" data-view="explorer" title="エクスプローラー (Ctrl+Shift+E)" aria-label="エクスプローラー" data-i18n-aria-label="activity.explorer">📁</button>
+      <button class="activity-btn" data-view="search" title="検索 (Ctrl+Shift+F)" aria-label="検索" data-i18n-aria-label="activity.search">🔍</button>
+      <button class="activity-btn" data-view="scm" title="ソース管理 (Ctrl+Shift+G)" aria-label="ソース管理" data-i18n-aria-label="activity.scm">🌿</button>
+      <button class="activity-btn" data-view="debug" title="実行とデバッグ" aria-label="実行とデバッグ" data-i18n-aria-label="activity.debug">▷</button>
+      <button class="activity-btn" data-view="extensions" title="拡張機能 (Open VSX Marketplace) (Ctrl+Shift+X)" aria-label="拡張機能" data-i18n-aria-label="activity.extensions">🧩</button>
       <div class="activity-bar-bottom">
-        <button class="activity-btn" data-view="settings" title="設定 (Ctrl+,)">⚙</button>
+        <button class="activity-btn" data-view="settings" title="設定 (Ctrl+,)" aria-label="設定" data-i18n-aria-label="activity.settings">⚙</button>
       </div>
     </aside>
 
@@ -70,7 +72,7 @@
     <div class="resizer horizontal" id="sidebar-resizer"></div>
 
     <!-- Main Editor & Terminal Area -->
-    <main id="main-area" aria-label="エディターワークベンチ">
+    <main id="main-area" aria-label="エディターワークベンチ" tabindex="-1">
       <!-- Editor Part with 2D Grid Split Support -->
       <section id="editor-part">
         <div class="editor-header-row">
@@ -100,9 +102,9 @@
       <section id="panel-part" aria-label="下部パネル">
         <div class="panel-header">
           <div class="panel-header-tabs">
-            <span class="panel-tab active" id="panel-tab-terminal">💻 ターミナル</span>
-            <span class="panel-tab" id="panel-tab-output">出力</span>
-            <span class="panel-tab" id="panel-tab-problems">問題</span>
+            <button class="panel-tab active" id="panel-tab-terminal" data-i18n="panel.terminal">💻 ターミナル</button>
+            <button class="panel-tab" id="panel-tab-output" data-i18n="panel.output">出力</button>
+            <button class="panel-tab" id="panel-tab-problems" data-i18n="panel.problems">問題</button>
           </div>
           <div class="panel-header-actions" id="terminal-actions">
             <div id="terminal-session-tabs" class="terminal-session-tabs"></div>
@@ -150,7 +152,7 @@
   </div>
 
   <!-- 5. Confirmation Modal (Save Changes on Close) -->
-  <div id="confirm-modal" class="modal-overlay hidden">
+  <div id="confirm-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
     <div class="confirm-modal-box">
       <div class="confirm-modal-header">
         <span class="confirm-modal-icon">⚠️</span>
