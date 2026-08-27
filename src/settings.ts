@@ -63,6 +63,21 @@ export const COMMAND_LABELS: Record<string, string> = {
   command_palette: "コマンドパレット",
   toggle_sidebar: "サイドバー切替",
   toggle_terminal: "ターミナル切替",
+  save_all: "すべて保存",
+  save_as_dialog: "名前を付けて保存",
+  open_folder_dialog: "フォルダーを開く",
+  close_folder: "フォルダーを閉じる",
+  keyboard_shortcuts: "キーボードショートカット",
+  editor_find: "検索",
+  editor_replace: "置換",
+  goto_def: "定義へ移動",
+  peek_definition: "定義をここに表示",
+  find_references: "参照へ移動",
+  open_symbol: "記号へ移動",
+  format_doc: "ドキュメントのフォーマット",
+  run_without_debugging: "デバッグなしで実行",
+  navigate_back: "戻る",
+  navigate_forward: "進む",
 };
 
 export const DEFAULT_KEYBINDINGS: Keybinding[] = [
@@ -84,6 +99,21 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { command: "command_palette", key: "Ctrl+Shift+P" },
   { command: "toggle_sidebar", key: "Ctrl+B" },
   { command: "toggle_terminal", key: "Ctrl+J" },
+  { command: "save_all", key: "Ctrl+K S" },
+  { command: "save_as_dialog", key: "Ctrl+Shift+S" },
+  { command: "open_folder_dialog", key: "Ctrl+K Ctrl+O" },
+  { command: "close_folder", key: "Ctrl+K F" },
+  { command: "keyboard_shortcuts", key: "Ctrl+K Ctrl+S" },
+  { command: "editor_find", key: "Ctrl+F" },
+  { command: "editor_replace", key: "Ctrl+H" },
+  { command: "goto_def", key: "F12" },
+  { command: "peek_definition", key: "Alt+F12" },
+  { command: "find_references", key: "Shift+F12" },
+  { command: "open_symbol", key: "Ctrl+Shift+O" },
+  { command: "format_doc", key: "Shift+Alt+F" },
+  { command: "run_without_debugging", key: "Ctrl+F5" },
+  { command: "navigate_back", key: "Alt+Left" },
+  { command: "navigate_forward", key: "Alt+Right" },
 ];
 
 const USER_SETTINGS_KEY = "oxide.settings.user";
@@ -497,13 +527,20 @@ function validateKeybindings(value: unknown): Keybinding[] {
 }
 
 export function getKeybindings(): Keybinding[] {
+  const defaults = DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
   const stored = readJson(KEYBINDINGS_KEY);
-  if (stored === null)
-    return DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
+  if (stored === null) return defaults;
   try {
-    return validateKeybindings(stored);
+    const custom = validateKeybindings(stored);
+    const customizedCommands = new Set(
+      custom.map((binding) => binding.command),
+    );
+    return [
+      ...defaults.filter((binding) => !customizedCommands.has(binding.command)),
+      ...custom,
+    ];
   } catch {
-    return DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
+    return defaults;
   }
 }
 
@@ -553,13 +590,38 @@ export function keybindingFromEvent(event: KeyboardEvent): string {
   return normalizeKeybinding(modifiers.join("+"));
 }
 
-export function commandForEvent(event: KeyboardEvent): string | null {
-  const pressed = keybindingFromEvent(event);
-  return (
-    getKeybindings().find(
-      (binding) => normalizeKeybinding(binding.key) === pressed,
-    )?.command || null
+export interface KeybindingResolution {
+  command: string | null;
+  pending: boolean;
+}
+
+export function keybindingSequence(key: string): string[] {
+  return key.trim().split(/\s+/).filter(Boolean).map(normalizeKeybinding);
+}
+
+export function resolveKeybindingSequence(
+  pressedKeys: string[],
+): KeybindingResolution {
+  const sequence = pressedKeys.map(normalizeKeybinding);
+  const candidates = getKeybindings().filter((binding) => {
+    const keys = keybindingSequence(binding.key);
+    return sequence.every((key, index) => keys[index] === key);
+  });
+  const exact = candidates.find(
+    (binding) => keybindingSequence(binding.key).length === sequence.length,
   );
+  return {
+    command: exact?.command || null,
+    pending:
+      !exact &&
+      candidates.some(
+        (binding) => keybindingSequence(binding.key).length > sequence.length,
+      ),
+  };
+}
+
+export function commandForEvent(event: KeyboardEvent): string | null {
+  return resolveKeybindingSequence([keybindingFromEvent(event)]).command;
 }
 
 function validateProfile(value: unknown): EditorProfile {

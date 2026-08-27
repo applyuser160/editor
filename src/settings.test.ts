@@ -8,6 +8,7 @@ import {
   getKeybindings,
   getScopedSettings,
   migrateLegacySettings,
+  resolveKeybindingSequence,
   resolveSettings,
   saveKeybindings,
   saveScopedSettings,
@@ -104,6 +105,31 @@ describe("keybindings", () => {
         new KeyboardEvent("keydown", { key: "s", ctrlKey: true }),
       ),
     ).toBe("save");
+  });
+
+  it("resolves multi-key chords and retains defaults after custom bindings", () => {
+    expect(resolveKeybindingSequence(["Ctrl+K"])).toEqual({
+      command: null,
+      pending: true,
+    });
+    expect(resolveKeybindingSequence(["Ctrl+K", "S"])).toEqual({
+      command: "save_all",
+      pending: false,
+    });
+
+    saveKeybindings([{ command: "save", key: "Ctrl+Alt+S" }]);
+    expect(resolveKeybindingSequence(["Ctrl+S"])).toEqual({
+      command: null,
+      pending: false,
+    });
+    expect(resolveKeybindingSequence(["Ctrl+Alt+S"])).toEqual({
+      command: "save",
+      pending: false,
+    });
+    expect(resolveKeybindingSequence(["Ctrl+K", "S"])).toEqual({
+      command: "save_all",
+      pending: false,
+    });
   });
 
   it("normalizes key aliases, rejects duplicate commands, and reports key conflicts", () => {
