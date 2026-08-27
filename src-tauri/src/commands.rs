@@ -8,6 +8,7 @@ use crate::workspace::{
     WorkspaceExcludes, WorkspaceFilter, WorkspaceFilterTarget, WorkspaceInfo, WorkspaceState,
     WorkspaceTrust,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,14 @@ pub struct FileEntry {
     pub is_dir: bool,
     pub depth: usize,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FilePreview {
+    pub mime_type: String,
+    pub data_url: String,
+}
+
+const MAX_IMAGE_PREVIEW_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileStat {
@@ -509,6 +518,42 @@ pub async fn read_file_content(
             path
         )
     })
+}
+
+#[tauri::command]
+pub async fn read_image_preview(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<FilePreview, String> {
+    let full_path = get_absolute_path(&state, &path)?;
+    let mime_type = image_mime_type(&full_path)
+        .ok_or_else(|| "This file type does not support an in-editor image preview".to_string())?;
+    let metadata = std::fs::metadata(&full_path)
+        .map_err(|error| format!("Failed to inspect {}: {}", path, error))?;
+    if metadata.len() > MAX_IMAGE_PREVIEW_BYTES as u64 {
+        return Err(format!(
+            "Image preview is limited to {} MiB",
+            MAX_IMAGE_PREVIEW_BYTES / 1024 / 1024
+        ));
+    }
+    let bytes =
+        std::fs::read(&full_path).map_err(|error| format!("Failed to read {}: {}", path, error))?;
+    Ok(FilePreview {
+        mime_type: mime_type.to_string(),
+        data_url: format!("data:{};base64,{}", mime_type, STANDARD.encode(bytes)),
+    })
+}
+
+fn image_mime_type(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "ico" => Some("image/x-icon"),
+        _ => None,
+    }
 }
 
 #[tauri::command]
@@ -1258,5 +1303,12 @@ mod tests {
     fn workspace_path_resolution_rejects_external_files() {
         let workspace = WorkspaceState::new();
         assert!(workspace.resolve_path("../outside.txt").is_err());
+    }
+
+    #[test]
+    fn identifies_supported_image_preview_formats() {
+        assert_eq!(image_mime_type(Path::new("logo.PNG")), Some("image/png"));
+        assert_eq!(image_mime_type(Path::new("icon.ico")), Some("image/x-icon"));
+        assert_eq!(image_mime_type(Path::new("source.rs")), None);
     }
 }

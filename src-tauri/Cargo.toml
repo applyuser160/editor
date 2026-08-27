@@ -31,4 +31,5 @@ regex = "1.10"
 dirs = "6.0.0"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 keyring = { version = "4.1.6", features = ["v1"] }
+base64 = "0.22"
 
