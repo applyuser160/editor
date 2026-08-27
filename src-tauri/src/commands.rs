@@ -703,6 +703,20 @@ pub async fn git_get_status() -> Result<GitStatusResult, String> {
 }
 
 #[tauri::command]
+pub async fn git_get_diff(path: String, staged: bool) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command.arg("diff");
+    if staged { command.arg("--staged"); }
+    command.args(["--", &path]);
+    let output = command.output().map_err(|error| format!("git diff failed: {}", error))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn git_commit(message: String) -> Result<String, String> {
     let trimmed = message.trim();
     if trimmed.is_empty() {
