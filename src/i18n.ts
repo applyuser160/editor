@@ -22,7 +22,8 @@ const dictionaries: Record<Locale, TranslationMap> = {
     "panel.terminal": "💻 ターミナル",
     "panel.output": "出力",
     "panel.problems": "問題",
-    "quickopen.placeholder": "Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)",
+    "quickopen.placeholder":
+      "Oxide Editor - ファイルまたはコマンドを検索 (Ctrl+P)",
     "skip.main": "メイン編集領域へ移動",
   },
   en: {
@@ -60,21 +61,41 @@ export function getLocale(): Locale {
 }
 
 export function translate(key: string, fallback?: string): string {
-  return dictionaries[activeLocale][key] || dictionaries.ja[key] || fallback || key;
+  return (
+    dictionaries[activeLocale][key] || dictionaries.ja[key] || fallback || key
+  );
 }
 
 export function applyLocale(value: unknown): Locale {
   activeLocale = normalizeLocale(value);
   document.documentElement.lang = activeLocale;
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((element) => {
-    element.textContent = translate(element.dataset.i18n || "", element.textContent || "");
+    element.textContent = translate(
+      element.dataset.i18n || "",
+      element.textContent || "",
+    );
   });
-  document.querySelectorAll<HTMLElement>("[data-i18n-aria-label]").forEach((element) => {
-    element.setAttribute("aria-label", translate(element.dataset.i18nAriaLabel || "", element.getAttribute("aria-label") || ""));
-  });
-  document.querySelectorAll<HTMLInputElement>("[data-i18n-placeholder]").forEach((element) => {
-    element.placeholder = translate(element.dataset.i18nPlaceholder || "", element.placeholder);
-  });
-  document.dispatchEvent(new CustomEvent("oxide-locale-change", { detail: activeLocale }));
+  document
+    .querySelectorAll<HTMLElement>("[data-i18n-aria-label]")
+    .forEach((element) => {
+      element.setAttribute(
+        "aria-label",
+        translate(
+          element.dataset.i18nAriaLabel || "",
+          element.getAttribute("aria-label") || "",
+        ),
+      );
+    });
+  document
+    .querySelectorAll<HTMLInputElement>("[data-i18n-placeholder]")
+    .forEach((element) => {
+      element.placeholder = translate(
+        element.dataset.i18nPlaceholder || "",
+        element.placeholder,
+      );
+    });
+  document.dispatchEvent(
+    new CustomEvent("oxide-locale-change", { detail: activeLocale }),
+  );
   return activeLocale;
 }

@@ -307,7 +307,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupIntegratedTerminal();
   setupBranchSwitcher();
   setupStatusBarInteractions();
-    setupQuickPick();
+  setupQuickPick();
   setupShortcuts();
   setupAccessibleDialogFocus();
 
@@ -4067,9 +4067,18 @@ function setupSearchInput() {
 function applyStoredSettings() {
   const settings = resolveSettings(workspaceRoot, getActiveLanguage());
   applyLocale(settings.locale);
-  document.documentElement.style.setProperty("--oxide-editor-font-size", `${settings.fontSize}px`);
-  document.body.classList.toggle("accessibility-high-contrast", settings.highContrast);
-  document.body.classList.toggle("accessibility-reduced-motion", settings.reducedMotion);
+  document.documentElement.style.setProperty(
+    "--oxide-editor-font-size",
+    `${settings.fontSize}px`,
+  );
+  document.body.classList.toggle(
+    "accessibility-high-contrast",
+    settings.highContrast,
+  );
+  document.body.classList.toggle(
+    "accessibility-reduced-motion",
+    settings.reducedMotion,
+  );
   monaco.editor.setTheme(settings.highContrast ? "hc-black" : settings.theme);
   editor1?.updateOptions({
     fontSize: settings.fontSize,
@@ -4202,10 +4211,12 @@ function setupSettingsHandlers(
     container.querySelector<HTMLInputElement>("#minimap-checkbox");
   const localeSelector =
     container.querySelector<HTMLSelectElement>("#locale-selector");
-  const highContrastCheckbox =
-    container.querySelector<HTMLInputElement>("#high-contrast-checkbox");
-  const reducedMotionCheckbox =
-    container.querySelector<HTMLInputElement>("#reduced-motion-checkbox");
+  const highContrastCheckbox = container.querySelector<HTMLInputElement>(
+    "#high-contrast-checkbox",
+  );
+  const reducedMotionCheckbox = container.querySelector<HTMLInputElement>(
+    "#reduced-motion-checkbox",
+  );
 
   scopeSelector?.addEventListener("change", () => {
     renderSettingsView(container, scopeSelector.value as SettingScope);
@@ -6281,11 +6292,18 @@ function setupShortcuts() {
 function setupAccessibleDialogFocus() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Tab") return;
-    const dialog = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog']"))
-      .find((element) => !element.classList.contains("hidden") && element.offsetParent !== null);
+    const dialog = Array.from(
+      document.querySelectorAll<HTMLElement>("[role='dialog']"),
+    ).find(
+      (element) =>
+        !element.classList.contains("hidden") && element.offsetParent !== null,
+    );
     if (!dialog) return;
-    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"))
-      .filter((element) => element.offsetParent !== null);
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ),
+    ).filter((element) => element.offsetParent !== null);
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -6300,7 +6318,6 @@ function setupAccessibleDialogFocus() {
 }
 
 function updateStatusBar(path: string) {
-
   const langEl = document.getElementById("status-language");
   if (langEl) {
     langEl.textContent = getLanguageFromPath(path).toUpperCase();

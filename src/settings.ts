@@ -213,11 +213,13 @@ function validateSettings(value: unknown): Partial<EditorSettings> {
     settings.locale = value.locale;
   }
   if (value.highContrast !== undefined) {
-    if (typeof value.highContrast !== "boolean") throw new Error("highContrastには真偽値を指定してください");
+    if (typeof value.highContrast !== "boolean")
+      throw new Error("highContrastには真偽値を指定してください");
     settings.highContrast = value.highContrast;
   }
   if (value.reducedMotion !== undefined) {
-    if (typeof value.reducedMotion !== "boolean") throw new Error("reducedMotionには真偽値を指定してください");
+    if (typeof value.reducedMotion !== "boolean")
+      throw new Error("reducedMotionには真偽値を指定してください");
     settings.reducedMotion = value.reducedMotion;
   }
   return settings;
