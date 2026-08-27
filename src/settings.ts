@@ -315,7 +315,35 @@ export async function reloadSettingsPersistence(workspaceRoot = activeWorkspaceR
 }
 
 export function migrateLegacySettings(): void {
-  // Kept for callers compiled against the former API. Initialization performs the migration atomically.
+  // Native initialization performs the authoritative migration. This fallback preserves
+  // the former synchronous API for callers that run before the native bridge is ready.
+  if (nativeStoreReady || localStorage.getItem(LEGACY_MIGRATION_KEY)) return;
+  if (storedValues.has(USER_SETTINGS_KEY)) {
+    localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
+    return;
+  }
+
+  const savedUserSettings = readLegacyJson(USER_SETTINGS_KEY);
+  if (isRecord(savedUserSettings)) {
+    storedValues.set(USER_SETTINGS_KEY, cloneJson(savedUserSettings));
+    localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
+    return;
+  }
+
+  const legacy: Partial<EditorSettings> = {};
+  const theme = localStorage.getItem("oxide_theme");
+  const fontSize = Number(localStorage.getItem("oxide_fontSize"));
+  const tabSize = Number(localStorage.getItem("oxide_tabSize"));
+  const minimap = localStorage.getItem("oxide_minimap");
+  if (theme === "vscode-dark-plus" || theme === "vs" || theme === "hc-black") legacy.theme = theme;
+  if (fontSize >= 10 && fontSize <= 28) legacy.fontSize = fontSize;
+  if (tabSize >= 2 && tabSize <= 8) legacy.tabSize = tabSize;
+  if (minimap !== null) legacy.minimap = minimap !== "false";
+  if (Object.keys(legacy).length > 0) {
+    storedValues.set(USER_SETTINGS_KEY, cloneJson(legacy));
+    localStorage.setItem(USER_SETTINGS_KEY, JSON.stringify(legacy));
+  }
+  localStorage.setItem(LEGACY_MIGRATION_KEY, "true");
 }
 
 export function getScopedSettings(
