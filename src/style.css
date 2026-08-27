@@ -1375,3 +1375,271 @@ body {
   flex-direction: column;
   gap: 5px;
 }
+
+/* VS Code-inspired Source Control layout */
+.scm-view {
+  padding: 8px 6px;
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.scm-toolbar,
+.scm-group-actions,
+.scm-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.scm-toolbar {
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.scm-icon-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: #c5c5c5;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.scm-icon-btn:hover,
+.scm-icon-btn:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.scm-commit-message {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  resize: vertical;
+  padding: 6px 8px;
+  color: var(--text-main);
+  background: #1f1f1f;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.scm-commit-message:focus {
+  border-color: #007fd4;
+  outline: 1px solid #007fd4;
+}
+
+.scm-commit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 8px 0 10px;
+  padding: 7px;
+  color: #ffffff;
+  background: #0e639c;
+  border: 1px solid #1177bb;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scm-commit-btn:hover {
+  background: #1177bb;
+}
+
+.scm-resource-group {
+  margin: 8px -2px 0;
+}
+
+.scm-group-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 26px;
+  padding: 0 4px;
+  color: #cccccc;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.scm-group-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.scm-group-chevron {
+  width: 16px;
+  color: #c5c5c5;
+  text-align: center;
+  transition: transform 120ms ease;
+}
+
+.scm-resource-group.is-collapsed .scm-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.scm-group-title {
+  flex: 1;
+  padding-left: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scm-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  color: #ffffff;
+  background: #0e639c;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.scm-resource-group.is-empty .scm-count-badge {
+  color: #a6a6a6;
+  background: transparent;
+}
+
+.scm-group-list {
+  padding: 1px 0 2px;
+}
+
+.scm-resource-group.is-collapsed .scm-group-list {
+  display: none;
+}
+
+.scm-file-row {
+  min-height: 25px;
+  padding: 2px 5px 2px 20px;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.scm-file-row:focus-visible {
+  background: rgba(0, 122, 204, 0.35);
+  outline: 1px solid #007fd4;
+  outline-offset: -1px;
+}
+
+.scm-file-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.scm-file-path {
+  overflow: hidden;
+  color: #a6a6a6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-status-tag {
+  min-width: 14px;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  text-align: right;
+}
+
+.scm-status-tag.added,
+.scm-status-tag.untracked {
+  color: #73c991;
+}
+
+.scm-status-tag.modified {
+  color: #e2c08d;
+}
+
+.scm-status-tag.deleted {
+  color: #f48771;
+}
+
+.scm-file-actions {
+  opacity: 0;
+}
+
+.scm-file-row:hover .scm-file-actions,
+.scm-file-row:focus-within .scm-file-actions {
+  opacity: 1;
+}
+
+.scm-stage-btn,
+.scm-discard-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #c5c5c5;
+  border-radius: 3px;
+  font-size: 16px;
+}
+
+.scm-stage-btn:hover,
+.scm-discard-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.scm-empty-state {
+  padding: 4px 10px 5px 24px;
+  color: #777777;
+  font-size: 11px;
+}
+
+.scm-legacy-sync-actions {
+  display: none;
+}
+
+.scm-group-header {
+  justify-content: space-between;
+}
+
+.scm-group-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.scm-group-toggle:focus-visible {
+  outline: 1px solid #007fd4;
+  outline-offset: -1px;
+}
+
+.scm-file-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.scm-file-path:empty {
+  display: none;
+}
+
+.scm-file-row .scm-status-tag {
+  margin-left: 6px;
+}
