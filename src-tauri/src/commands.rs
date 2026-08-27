@@ -1040,6 +1040,105 @@ pub async fn git_unstage_file(
 }
 
 #[tauri::command]
+pub async fn git_stage_all(state: State<'_, WorkspaceState>) -> Result<String, String> {
+    let output = Command::new("git")
+        .current_dir(state.root())
+        .args(["add", "-A"])
+        .output()
+        .map_err(|error| format!("git add failed: {}", error))?;
+    if output.status.success() {
+        Ok("All changes staged".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn git_unstage_all(state: State<'_, WorkspaceState>) -> Result<String, String> {
+    let output = Command::new("git")
+        .current_dir(state.root())
+        .args(["restore", "--staged", "--", "."])
+        .output()
+        .map_err(|error| format!("git restore failed: {}", error))?;
+    if output.status.success() {
+        Ok("All changes unstaged".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn git_discard_file(
+    state: State<'_, WorkspaceState>,
+    path: String,
+    include_staged: bool,
+) -> Result<String, String> {
+    let workspace_root = state.root();
+    let full_path = state.resolve_path(&path)?;
+    let relative_path = full_path
+        .strip_prefix(&workspace_root)
+        .map_err(|_| "Discard path is outside the workspace".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let tracked = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["ls-files", "--error-unmatch", "--", &relative_path])
+        .status()
+        .map_err(|error| format!("git ls-files failed: {}", error))?
+        .success();
+
+    let exists_in_head = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(["cat-file", "-e", &format!("HEAD:{}", relative_path)])
+        .status()
+        .map_err(|error| format!("git cat-file failed: {}", error))?
+        .success();
+    if !tracked || !exists_in_head {
+        if tracked {
+            let unstage = Command::new("git")
+                .current_dir(&workspace_root)
+                .args(["restore", "--staged", "--", &relative_path])
+                .output()
+                .map_err(|error| format!("git restore failed: {}", error))?;
+            if !unstage.status.success() {
+                return Err(String::from_utf8_lossy(&unstage.stderr).trim().to_string());
+            }
+        }
+        if full_path.exists() {
+            if full_path.is_dir() {
+                std::fs::remove_dir_all(&full_path)
+            } else {
+                std::fs::remove_file(&full_path)
+            }
+            .map_err(|error| format!("Failed to discard untracked {}: {}", path, error))?;
+        }
+        return Ok("Untracked file removed".to_string());
+    }
+
+    let mut args = vec!["restore"];
+    if include_staged {
+        args.extend(["--source=HEAD", "--staged", "--worktree"]);
+    } else {
+        args.push("--worktree");
+    }
+    args.extend(["--", &relative_path]);
+    let output = Command::new("git")
+        .current_dir(&workspace_root)
+        .args(args)
+        .output()
+        .map_err(|error| format!("git restore failed: {}", error))?;
+    if output.status.success() {
+        Ok(if include_staged {
+            "Staged and unstaged changes discarded".to_string()
+        } else {
+            "Unstaged changes discarded".to_string()
+        })
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn get_workspace_path(state: State<'_, WorkspaceState>) -> Result<String, String> {
     Ok(state.info().root)
 }

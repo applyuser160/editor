@@ -3800,8 +3800,16 @@ async function renderScmView(container: HTMLElement) {
         <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ブランチ: <strong style="color: #9cdcfe;">${status.branch}</strong></div>
         <textarea id="git-commit-msg" rows="2" placeholder="コミットメッセージを入力..." style="width: 100%; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 4px; font-size: 12px;"></textarea>
         <button id="btn-commit" style="margin-top: 6px; width: 100%; padding: 6px; background: #007acc; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">✔ コミット実行 (Commit)</button>
-        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #aaa;">変更されたファイル (${status.changed_files.length}):</div>
-        <div id="scm-files-list" style="margin-top: 6px;"></div>
+        <div class="scm-change-summary" style="display: flex; gap: 6px; margin-top: 12px;">
+          <button id="btn-stage-all" class="scm-action-btn" title="未ステージの変更をすべてステージに追加">＋ すべてステージ</button>
+          <button id="btn-unstage-all" class="scm-action-btn" title="ステージ済みの変更をすべてステージ解除">− すべて解除</button>
+        </div>
+        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #9cdcfe;">ステージ済みの変更 <span id="scm-staged-count"></span></div>
+        <div style="font-size: 10px; color: #888; margin-top: 2px;">次のコミットに含まれます</div>
+        <div id="scm-staged-files" style="margin-top: 4px;"></div>
+        <div style="margin-top: 12px; font-size: 11px; font-weight: bold; color: #aaa;">未ステージの変更 <span id="scm-unstaged-count"></span></div>
+        <div style="font-size: 10px; color: #888; margin-top: 2px;">ステージに追加するまでコミットには含まれません</div>
+        <div id="scm-unstaged-files" style="margin-top: 4px;"></div>
       </div>
     `;
 
@@ -3847,77 +3855,164 @@ async function renderScmView(container: HTMLElement) {
         }
       });
 
-    const list = document.getElementById("scm-files-list");
-    if (list) {
-      status.changed_files.forEach((rawEntry) => {
-        const trimmed = rawEntry.trim();
-        const statusCode = trimmed.substring(0, 2).trim();
-        const filePath = trimmed.substring(2).trim();
-
-        let tagClass = "modified";
-        let tagText = "M";
-        if (statusCode.includes("?")) {
-          tagClass = "untracked";
-          tagText = "U";
-        } else if (statusCode.includes("A")) {
-          tagClass = "added";
-          tagText = "A";
-        } else if (statusCode.includes("D")) {
-          tagClass = "deleted";
-          tagText = "D";
-        }
-
-        const isStaged =
-          !statusCode.startsWith(" ") && !statusCode.includes("?");
-
-        const row = document.createElement("div");
-        row.className = "scm-file-row";
-        row.tabIndex = 0;
-        row.setAttribute("role", "button");
-        row.setAttribute("aria-label", `${filePath} の変更を比較表示`);
-        row.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-            <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}">${tagText}</span>
-            <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden; cursor: pointer;">${filePath}</span>
-          </div>
-          <button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button>
-        `;
-
-        const showFileDiff = () => {
-          void openGitDiff(filePath);
-        };
-        row.addEventListener("click", (event) => {
-          if ((event.target as HTMLElement).closest(".scm-stage-btn")) return;
-          showFileDiff();
+    type ScmChange = {
+      path: string;
+      status: string;
+      staged: boolean;
+    };
+    const stagedChanges: ScmChange[] = [];
+    const unstagedChanges: ScmChange[] = [];
+    status.changed_files.forEach((rawEntry) => {
+      const indexStatus = rawEntry[0] || " ";
+      const worktreeStatus = rawEntry[1] || " ";
+      const filePath = rawEntry.slice(3).trim();
+      if (!filePath || (indexStatus === "!" && worktreeStatus === "!")) return;
+      if (indexStatus === "?" && worktreeStatus === "?") {
+        unstagedChanges.push({ path: filePath, status: "U", staged: false });
+        return;
+      }
+      if (indexStatus !== " ") {
+        stagedChanges.push({
+          path: filePath,
+          status: indexStatus,
+          staged: true,
         });
-        row.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            showFileDiff();
+      }
+      if (worktreeStatus !== " ") {
+        unstagedChanges.push({
+          path: filePath,
+          status: worktreeStatus,
+          staged: false,
+        });
+      }
+    });
+
+    const stagedCount = document.getElementById("scm-staged-count");
+    const unstagedCount = document.getElementById("scm-unstaged-count");
+    if (stagedCount) stagedCount.textContent = `(${stagedChanges.length})`;
+    if (unstagedCount)
+      unstagedCount.textContent = `(${unstagedChanges.length})`;
+    const stagedList = document.getElementById("scm-staged-files");
+    const unstagedList = document.getElementById("scm-unstaged-files");
+
+    const renderChange = (change: ScmChange, list: HTMLElement) => {
+      const tagClass =
+        change.status === "U"
+          ? "untracked"
+          : change.status === "A"
+            ? "added"
+            : change.status === "D"
+              ? "deleted"
+              : "modified";
+      const statusLabel =
+        change.status === "U"
+          ? "未追跡"
+          : change.status === "A"
+            ? "追加"
+            : change.status === "D"
+              ? "削除"
+              : change.staged
+                ? "ステージ済み"
+                : "変更";
+      const row = document.createElement("div");
+      row.className = "scm-file-row";
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `${change.path} の変更を比較表示`);
+      row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
+          <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}" title="${statusLabel}">${change.status}</span>
+          <span style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(change.path)}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 3px;">
+          <button class="scm-stage-btn" title="${change.staged ? "ステージ解除" : "ステージに追加"}">${change.staged ? "−" : "+"}</button>
+          <button class="scm-discard-btn" title="${change.staged ? "ステージ済み・未ステージの変更をすべて破棄" : "未ステージの変更を破棄"}">↶</button>
+        </div>
+      `;
+      const showFileDiff = () => void openGitDiff(change.path);
+      row.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement).closest("button")) return;
+        showFileDiff();
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          showFileDiff();
+        }
+      });
+      row
+        .querySelector(".scm-stage-btn")
+        ?.addEventListener("click", async () => {
+          try {
+            await invoke(
+              change.staged ? "git_unstage_file" : "git_stage_file",
+              {
+                path: change.path,
+              },
+            );
+            showToast(
+              `${change.staged ? "ステージ解除" : "ステージ追加"}: ${change.path}`,
+              "info",
+            );
+            updateSidebarView("scm");
+          } catch (error) {
+            showToast(`ステージ操作に失敗しました: ${error}`, "error");
           }
         });
+      row
+        .querySelector(".scm-discard-btn")
+        ?.addEventListener("click", async () => {
+          const scope = change.staged
+            ? "ステージ済みを含むすべての"
+            : "未ステージの";
+          if (
+            !confirm(
+              `${change.path} の${scope}変更を破棄します。元に戻せません。`,
+            )
+          )
+            return;
+          try {
+            await invoke("git_discard_file", {
+              path: change.path,
+              includeStaged: change.staged,
+            });
+            showToast(`変更を破棄しました: ${change.path}`, "info");
+            updateSidebarView("scm");
+          } catch (error) {
+            showToast(`変更の破棄に失敗しました: ${error}`, "error");
+          }
+        });
+      list.appendChild(row);
+    };
+    stagedChanges.forEach(
+      (change) => stagedList && renderChange(change, stagedList),
+    );
+    unstagedChanges.forEach(
+      (change) => unstagedList && renderChange(change, unstagedList),
+    );
 
-        row
-          .querySelector(".scm-stage-btn")
-          ?.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            try {
-              if (isStaged) {
-                await invoke("git_unstage_file", { path: filePath });
-                showToast(`ステージ解除: ${filePath}`, "info");
-              } else {
-                await invoke("git_stage_file", { path: filePath });
-                showToast(`ステージ追加: ${filePath}`, "info");
-              }
-              updateSidebarView("scm");
-            } catch (err) {
-              showToast(`ステージング失敗: ${err}`, "error");
-            }
-          });
-
-        list.appendChild(row);
+    document
+      .getElementById("btn-stage-all")
+      ?.addEventListener("click", async () => {
+        try {
+          await invoke("git_stage_all");
+          showToast("すべての変更をステージに追加しました", "info");
+          updateSidebarView("scm");
+        } catch (error) {
+          showToast(`一括ステージに失敗しました: ${error}`, "error");
+        }
       });
-    }
+    document
+      .getElementById("btn-unstage-all")
+      ?.addEventListener("click", async () => {
+        try {
+          await invoke("git_unstage_all");
+          showToast("すべての変更をステージ解除しました", "info");
+          updateSidebarView("scm");
+        } catch (error) {
+          showToast(`一括ステージ解除に失敗しました: ${error}`, "error");
+        }
+      });
 
     const btnCommit = document.getElementById("btn-commit");
     const commitInput = document.getElementById(
