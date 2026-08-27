@@ -6,6 +6,7 @@ import {
 } from "@tauri-apps/plugin-dialog";
 import * as monaco from "monaco-editor";
 import { Terminal } from "@xterm/xterm";
+import { applyLocale } from "./i18n";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -306,8 +307,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupIntegratedTerminal();
   setupBranchSwitcher();
   setupStatusBarInteractions();
-  setupQuickPick();
+    setupQuickPick();
   setupShortcuts();
+  setupAccessibleDialogFocus();
+
   setupFileActions();
   setupFileWatcherListener();
   setupDebugAdapterListener();
@@ -4063,7 +4066,11 @@ function setupSearchInput() {
 
 function applyStoredSettings() {
   const settings = resolveSettings(workspaceRoot, getActiveLanguage());
-  monaco.editor.setTheme(settings.theme);
+  applyLocale(settings.locale);
+  document.documentElement.style.setProperty("--oxide-editor-font-size", `${settings.fontSize}px`);
+  document.body.classList.toggle("accessibility-high-contrast", settings.highContrast);
+  document.body.classList.toggle("accessibility-reduced-motion", settings.reducedMotion);
+  monaco.editor.setTheme(settings.highContrast ? "hc-black" : settings.theme);
   editor1?.updateOptions({
     fontSize: settings.fontSize,
     tabSize: settings.tabSize,
@@ -4116,6 +4123,19 @@ function renderSettingsView(
         <input type="number" id="font-size-input" value="${resolvedSettings.fontSize}" min="10" max="28" />
         <label>タブサイズ</label>
         <input type="number" id="tab-size-input" value="${resolvedSettings.tabSize}" min="2" max="8" />
+        <label>表示言語</label>
+        <select id="locale-selector" aria-label="表示言語">
+          <option value="ja" ${resolvedSettings.locale === "ja" ? "selected" : ""}>日本語</option>
+          <option value="en" ${resolvedSettings.locale === "en" ? "selected" : ""}>English</option>
+        </select>
+        <label class="settings-checkbox">
+          <input type="checkbox" id="high-contrast-checkbox" ${resolvedSettings.highContrast ? "checked" : ""} />
+          ハイコントラストを使用
+        </label>
+        <label class="settings-checkbox">
+          <input type="checkbox" id="reduced-motion-checkbox" ${resolvedSettings.reducedMotion ? "checked" : ""} />
+          モーションを減らす
+        </label>
         <label class="settings-checkbox">
           <input type="checkbox" id="minimap-checkbox" ${resolvedSettings.minimap ? "checked" : ""} />
           ミニマップを表示
@@ -4180,6 +4200,12 @@ function setupSettingsHandlers(
     container.querySelector<HTMLInputElement>("#tab-size-input");
   const minimapCheckbox =
     container.querySelector<HTMLInputElement>("#minimap-checkbox");
+  const localeSelector =
+    container.querySelector<HTMLSelectElement>("#locale-selector");
+  const highContrastCheckbox =
+    container.querySelector<HTMLInputElement>("#high-contrast-checkbox");
+  const reducedMotionCheckbox =
+    container.querySelector<HTMLInputElement>("#reduced-motion-checkbox");
 
   scopeSelector?.addEventListener("change", () => {
     renderSettingsView(container, scopeSelector.value as SettingScope);
@@ -4209,6 +4235,15 @@ function setupSettingsHandlers(
   );
   minimapCheckbox?.addEventListener("change", () =>
     saveSetting("minimap", minimapCheckbox.checked),
+  );
+  localeSelector?.addEventListener("change", () =>
+    saveSetting("locale", localeSelector.value as EditorSettings["locale"]),
+  );
+  highContrastCheckbox?.addEventListener("change", () =>
+    saveSetting("highContrast", highContrastCheckbox.checked),
+  );
+  reducedMotionCheckbox?.addEventListener("change", () =>
+    saveSetting("reducedMotion", reducedMotionCheckbox.checked),
   );
 
   container
@@ -4784,6 +4819,8 @@ function showToast(
 
   const toast = document.createElement("div");
   toast.className = `toast-item ${type}`;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
+  toast.setAttribute("aria-live", type === "error" ? "assertive" : "polite");
 
   const icon = type === "error" ? "❌" : type === "warning" ? "⚠️" : "ℹ️";
   toast.innerHTML = `
@@ -6220,6 +6257,7 @@ function setupStatusBarInteractions() {
 // 20. Global Shortcuts & Status Bar
 function setupShortcuts() {
   window.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     const target = e.target as HTMLElement | null;
     const isTextInput =
       (target?.tagName === "INPUT" ||
@@ -6240,7 +6278,29 @@ function setupShortcuts() {
   });
 }
 
+function setupAccessibleDialogFocus() {
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const dialog = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog']"))
+      .find((element) => !element.classList.contains("hidden") && element.offsetParent !== null);
+    if (!dialog) return;
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"))
+      .filter((element) => element.offsetParent !== null);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 function updateStatusBar(path: string) {
+
   const langEl = document.getElementById("status-language");
   if (langEl) {
     langEl.textContent = getLanguageFromPath(path).toUpperCase();
@@ -6249,8 +6309,11 @@ function updateStatusBar(path: string) {
 
 function showStatusMessage(msg: string) {
   const status = document.getElementById("global-status");
+  const accessibilityStatus = document.getElementById("accessibility-status");
+  if (accessibilityStatus) accessibilityStatus.textContent = msg;
   if (status) {
     status.textContent = msg;
+
     setTimeout(() => {
       if (status.textContent === msg) {
         status.textContent = "準備完了";

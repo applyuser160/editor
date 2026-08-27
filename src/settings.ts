@@ -5,6 +5,9 @@ export interface EditorSettings {
   fontSize: number;
   tabSize: number;
   minimap: boolean;
+  locale: "ja" | "en";
+  highContrast: boolean;
+  reducedMotion: boolean;
 }
 
 export type SettingScope = "user" | "workspace" | "language";
@@ -42,6 +45,9 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   fontSize: 14,
   tabSize: 4,
   minimap: true,
+  locale: "ja",
+  highContrast: false,
+  reducedMotion: false,
 };
 
 export const COMMAND_LABELS: Record<string, string> = {
@@ -150,6 +156,9 @@ function validateSettings(value: unknown): Partial<EditorSettings> {
     "fontSize",
     "tabSize",
     "minimap",
+    "locale",
+    "highContrast",
+    "reducedMotion",
   ]);
   const unsupportedKey = Object.keys(value).find(
     (key) => !supportedKeys.has(key as keyof EditorSettings),
@@ -196,6 +205,20 @@ function validateSettings(value: unknown): Partial<EditorSettings> {
       throw new Error("minimapには真偽値を指定してください");
     }
     settings.minimap = value.minimap;
+  }
+  if (value.locale !== undefined) {
+    if (value.locale !== "ja" && value.locale !== "en") {
+      throw new Error("localeにはjaまたはenを指定してください");
+    }
+    settings.locale = value.locale;
+  }
+  if (value.highContrast !== undefined) {
+    if (typeof value.highContrast !== "boolean") throw new Error("highContrastには真偽値を指定してください");
+    settings.highContrast = value.highContrast;
+  }
+  if (value.reducedMotion !== undefined) {
+    if (typeof value.reducedMotion !== "boolean") throw new Error("reducedMotionには真偽値を指定してください");
+    settings.reducedMotion = value.reducedMotion;
   }
   return settings;
 }
