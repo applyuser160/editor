@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Cursor, Read, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use zip::ZipArchive;
@@ -21,6 +21,12 @@ pub struct ExtensionManifest {
     pub contributes_languages: Vec<String>,
     pub contributes_themes: Vec<String>,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtensionRuntimeStatus {
+    pub running: bool,
+    pub active_extensions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,18 +165,145 @@ impl ExtensionHostState {
     }
 
     pub fn start_sidecar(&self) -> Result<String, String> {
-        let check_node = Command::new("node").arg("--version").output();
-        match check_node {
-            Ok(out) if out.status.success() => {
-                let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                Ok(format!(
-                    "Extension runtime prerequisite ready (Node.js {}). Installed VSIX packages are validated and persisted; extension API execution is not enabled yet.",
-                    version
-                ))
-            }
-            _ => Ok("Extension packages are available, but Node.js is not installed. Extension API execution is unavailable.".to_string()),
+        let node_version = Command::new("node")
+            .arg("--version")
+            .output()
+            .map_err(|_| "Node.js is required to run extensions but was not found".to_string())?;
+        if !node_version.status.success() {
+            return Err(
+                "Node.js is required to run extensions but could not be started".to_string(),
+            );
         }
+
+        let mut child_process = self.child_process.lock().unwrap();
+        if let Some(child) = child_process.as_mut() {
+            if child
+                .try_wait()
+                .map_err(|error| error.to_string())?
+                .is_none()
+            {
+                return Ok("Extension runtime is already running".to_string());
+            }
+        }
+
+        let active_extensions = self
+            .extensions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|extension| extension.enabled)
+            .map(resolve_extension_entry)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        if active_extensions.is_empty() {
+            *child_process = None;
+            return Ok("No enabled extensions provide a Node.js entry point".to_string());
+        }
+
+        let host_script = write_extension_host_script()?;
+        let child = Command::new("node")
+            .arg(host_script)
+            .args(&active_extensions)
+            .spawn()
+            .map_err(|error| format!("Failed to start extension runtime: {}", error))?;
+        *child_process = Some(child);
+        let version = String::from_utf8_lossy(&node_version.stdout)
+            .trim()
+            .to_string();
+        Ok(format!(
+            "Extension runtime started with Node.js {} for {} extension(s)",
+            version,
+            active_extensions.len()
+        ))
     }
+
+    pub fn runtime_status(&self) -> Result<ExtensionRuntimeStatus, String> {
+        let running = self
+            .child_process
+            .lock()
+            .unwrap()
+            .as_mut()
+            .map(|child| child.try_wait().map(|status| status.is_none()))
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(false);
+        let active_extensions = if running {
+            self.extensions
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|extension| extension.enabled && extension.main.is_some())
+                .map(|extension| extension.id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(ExtensionRuntimeStatus {
+            running,
+            active_extensions,
+        })
+    }
+}
+
+fn resolve_extension_entry(extension: &ExtensionManifest) -> Result<Option<PathBuf>, String> {
+    let Some(main) = &extension.main else {
+        return Ok(None);
+    };
+    let main_path = Path::new(main);
+    if main_path.is_absolute()
+        || main_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(format!(
+            "Extension '{}' has an unsafe main entry",
+            extension.id
+        ));
+    }
+    let root = extension_extract_path(&extension.id);
+    let entry = root.join(main_path).canonicalize().map_err(|error| {
+        format!(
+            "Extension '{}' entry point could not be resolved: {}",
+            extension.id, error
+        )
+    })?;
+    if !entry.starts_with(&root) || !entry.is_file() {
+        return Err(format!(
+            "Extension '{}' has an invalid main entry",
+            extension.id
+        ));
+    }
+    Ok(Some(entry))
+}
+
+fn write_extension_host_script() -> Result<PathBuf, String> {
+    let script_path = extensions_root().join("oxide-extension-host.cjs");
+    fs::create_dir_all(extensions_root()).map_err(|error| error.to_string())?;
+    fs::write(
+        &script_path,
+        r#"const entries = process.argv.slice(2);
+for (const entry of entries) {
+  try {
+    const extension = require(entry);
+    if (typeof extension.activate === "function") {
+      Promise.resolve(extension.activate({ subscriptions: [], commands: { registerCommand() {} } }))
+        .then(() => process.stdout.write(`activated:${entry}\\n`))
+        .catch((error) => process.stderr.write(`activation-error:${entry}:${error.message}\\n`));
+    }
+  } catch (error) {
+    process.stderr.write(`load-error:${entry}:${error.message}\\n`);
+  }
+}
+setInterval(() => {}, 2 ** 31 - 1);
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(script_path)
 }
 
 fn builtin_extensions() -> Vec<ExtensionManifest> {
@@ -356,5 +489,12 @@ mod tests {
     fn rejects_oversized_or_empty_vsix() {
         assert!(parse_vsix_manifest(&[]).is_err());
         assert!(parse_vsix_manifest(&vec![0; MAX_VSIX_BYTES + 1]).is_err());
+    }
+
+    #[test]
+    fn rejects_parent_traversal_in_extension_entry_point() {
+        let mut extension = builtin_extensions().remove(0);
+        extension.main = Some("../outside.cjs".to_string());
+        assert!(resolve_extension_entry(&extension).is_err());
     }
 }

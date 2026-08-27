@@ -1,4 +1,4 @@
-use crate::extension_host::{ExtensionHostState, ExtensionManifest};
+use crate::extension_host::{ExtensionHostState, ExtensionManifest, ExtensionRuntimeStatus};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
 use crate::workspace::{
@@ -326,6 +326,13 @@ pub async fn get_installed_extensions(
     state: State<'_, ExtensionHostState>,
 ) -> Result<Vec<ExtensionManifest>, String> {
     Ok(state.list_extensions())
+}
+
+#[tauri::command]
+pub async fn get_extension_runtime_status(
+    state: State<'_, ExtensionHostState>,
+) -> Result<ExtensionRuntimeStatus, String> {
+    state.runtime_status()
 }
 
 #[tauri::command]
