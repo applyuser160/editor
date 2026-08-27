@@ -10,6 +10,7 @@ use crate::workspace::{
     WorkspaceExcludes, WorkspaceFilter, WorkspaceFilterTarget, WorkspaceInfo, WorkspaceState,
     WorkspaceTrust,
 };
+use crate::workspace_edit::{self, WorkspaceEditPlan, WorkspaceEditResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -1356,6 +1357,14 @@ pub fn debug_evaluate(
             "context": "repl"
         }),
     )
+}
+
+#[tauri::command]
+pub fn apply_workspace_edit(
+    state: State<'_, WorkspaceState>,
+    plan: WorkspaceEditPlan,
+) -> Result<WorkspaceEditResult, String> {
+    workspace_edit::apply_plan(&state, plan)
 }
 
 #[cfg(test)]

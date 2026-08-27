@@ -9,6 +9,7 @@ pub mod settings_store;
 pub mod task_runner;
 pub mod test_runner;
 pub mod workspace;
+pub mod workspace_edit;
 
 use debug_session::DebugSessionState;
 use extension_host::ExtensionHostState;
@@ -110,7 +111,8 @@ pub fn run() {
             commands::debug_stack_trace,
             commands::debug_scopes,
             commands::debug_variables,
-            commands::debug_evaluate
+            commands::debug_evaluate,
+            commands::apply_workspace_edit
         ])
         .run(tauri::generate_context!())
         .expect("error while running Oxide Editor Tauri application");

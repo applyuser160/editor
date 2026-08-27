@@ -1555,3 +1555,73 @@ body {
   border-radius: 50%;
   background: #e51400;
 }
+
+/* Multi-file WorkspaceEdit preview */
+.workspace-edit-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.workspace-edit-preview {
+  width: min(680px, 100%);
+  max-height: min(600px, 90vh);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+  color: var(--text-main);
+}
+
+.workspace-edit-preview h2 {
+  color: var(--text-bright);
+  font-size: 15px;
+}
+
+.workspace-edit-preview p {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-edit-preview ul {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px 8px 28px;
+  overflow: auto;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  background: #1e1e1e;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.workspace-edit-preview li strong {
+  color: #4ec9b0;
+}
+
+.workspace-edit-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.workspace-edit-preview-actions button {
+  padding: 6px 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #3c3c3c;
+  color: var(--text-bright);
+  cursor: pointer;
+}
