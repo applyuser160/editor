@@ -10,8 +10,11 @@ impl FileWatcherManager {
     pub fn start_watching(app_handle: AppHandle, watch_dir: &Path) -> Result<(), String> {
         let (tx, rx) = channel();
 
-        let mut watcher = RecommendedWatcher::new(tx, Config::default().with_poll_interval(Duration::from_millis(500)))
-            .map_err(|e| format!("Failed to create watcher: {}", e))?;
+        let mut watcher = RecommendedWatcher::new(
+            tx,
+            Config::default().with_poll_interval(Duration::from_millis(500)),
+        )
+        .map_err(|e| format!("Failed to create watcher: {}", e))?;
 
         watcher
             .watch(watch_dir, RecursiveMode::Recursive)
@@ -28,16 +31,22 @@ impl FileWatcherManager {
                             .into_iter()
                             .filter(|p| {
                                 let s = p.to_string_lossy();
-                                !s.contains(".git") && !s.contains("target") && !s.contains("node_modules") && !s.contains("dist")
+                                !s.contains(".git")
+                                    && !s.contains("target")
+                                    && !s.contains("node_modules")
+                                    && !s.contains("dist")
                             })
                             .map(|p| p.to_string_lossy().to_string())
                             .collect();
 
                         if !path_strs.is_empty() {
-                            let _ = app_clone.emit("fs-change", serde_json::json!({
-                                "paths": path_strs,
-                                "kind": format!("{:?}", kind)
-                            }));
+                            let _ = app_clone.emit(
+                                "fs-change",
+                                serde_json::json!({
+                                    "paths": path_strs,
+                                    "kind": format!("{:?}", kind)
+                                }),
+                            );
                         }
                     }
                     Err(e) => {
