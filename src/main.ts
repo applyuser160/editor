@@ -40,6 +40,29 @@ interface WorkspaceInfo {
   name: string;
 }
 
+interface TaskDefinition {
+  label: string;
+  command: string;
+  args: string[];
+  is_background: boolean;
+  cwd?: string | null;
+  depends_on: string[];
+}
+
+interface TaskExecutionResult {
+  label: string;
+  exit_code: number | null;
+  output: string;
+  problems: Array<{ message: string; severity: string }>;
+}
+
+interface TestSuite {
+  id: string;
+  label: string;
+  command: string;
+  args: string[];
+}
+
 interface WorkspaceTrust {
   root: string;
   trusted: boolean;
@@ -3533,6 +3556,8 @@ async function fetchAndRenderQuickPick(query: string) {
     { title: "View: Toggle Side Bar (サイドバー切替)", shortcut: "Ctrl+B", id: "toggle_sidebar" },
     { title: "View: Toggle Terminal (ターミナル切替)", shortcut: "Ctrl+J", id: "toggle_terminal" },
     { title: "Terminal: New Terminal (新規ターミナル作成)", shortcut: "Ctrl+Shift+`", id: "new_terminal" },
+    { title: "Tasks: Run Task (タスクの実行)", shortcut: "", id: "run_workspace_task" },
+    { title: "Testing: Run Tests (テストを実行)", shortcut: "", id: "run_workspace_tests" },
     { title: "Git: Open SCM View (ソース管理を開く)", shortcut: "Ctrl+Shift+G", id: "open_scm" },
     { title: "Git: Switch Branch (ブランチ切り替え)", shortcut: "", id: "switch_branch" },
     { title: "View: Show Explorer (エクスプローラーを開く)", shortcut: "Ctrl+Shift+E", id: "open_explorer" },
@@ -3739,6 +3764,12 @@ function executeCommand(id: string) {
       createNewTerminalSession();
       toggleTerminal(true);
       break;
+    case "run_workspace_task":
+      openWorkspaceTaskPicker();
+      break;
+    case "run_workspace_tests":
+      openWorkspaceTestPicker();
+      break;
     case "open_scm":
       document.querySelector<HTMLButtonElement>('[data-view="scm"]')?.click();
       break;
@@ -3789,6 +3820,89 @@ async function openNativeFileDialog() {
     }
   } catch (e) {
     console.error("Open file dialog error:", e);
+  }
+}
+
+async function openWorkspaceTestPicker() {
+  try {
+    const suites = await invoke<TestSuite[]>("list_workspace_test_suites");
+    if (suites.length === 0) {
+      showToast("テストランナーを検出できませんでした", "info");
+      return;
+    }
+    quickPickItems = suites.map((suite) => ({
+      id: `test:${suite.id}`,
+      title: `Testing: ${suite.label}`,
+      subtitle: [suite.command, ...suite.args].join(" "),
+      action: () => runWorkspaceTestSuite(suite),
+    }));
+    quickPickSelectedIndex = 0;
+    document.getElementById("quickpick-modal")?.classList.remove("hidden");
+    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    if (input) {
+      input.value = "";
+      input.placeholder = "実行するテストスイートを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to discover tests:", error);
+    showToast(`テストを検出できませんでした: ${error}`, "error");
+  }
+}
+
+async function runWorkspaceTestSuite(suite: TestSuite) {
+  try {
+    const result = await invoke<TaskExecutionResult>("run_workspace_test_suite", { id: suite.id });
+    const output = document.getElementById("output-container");
+    if (output) output.textContent = result.output || `${suite.label}: 出力はありません`;
+    document.getElementById("panel-tab-output")?.click();
+    showStatusMessage(`${suite.label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`);
+  } catch (error) {
+    console.error("Failed to run tests:", error);
+    showToast(`テストを実行できませんでした: ${error}`, "error");
+  }
+}
+
+async function openWorkspaceTaskPicker() {
+  try {
+    const tasks = await invoke<TaskDefinition[]>("list_workspace_tasks");
+    if (tasks.length === 0) {
+      showToast(".oxide/tasks.json または .vscode/tasks.json に実行可能なタスクがありません", "info");
+      return;
+    }
+    quickPickItems = tasks.map((task) => ({
+      id: `task:${task.label}`,
+      title: `$(tools) ${task.label}`,
+      subtitle: [task.command, ...task.args].join(" "),
+      action: () => runWorkspaceTask(task.label),
+    }));
+    quickPickSelectedIndex = 0;
+    const modal = document.getElementById("quickpick-modal");
+    const input = document.getElementById("quickpick-input") as HTMLInputElement | null;
+    modal?.classList.remove("hidden");
+    if (input) {
+      input.value = "";
+      input.placeholder = "実行するタスクを選択";
+      input.focus();
+    }
+    renderQuickPickDom();
+  } catch (error) {
+    console.error("Failed to load workspace tasks:", error);
+    showToast(`タスクを読み込めませんでした: ${error}`, "error");
+  }
+}
+
+async function runWorkspaceTask(label: string) {
+  try {
+    const result = await invoke<TaskExecutionResult>("run_workspace_task", { label });
+    const output = document.getElementById("output-container");
+    if (output) output.textContent = result.output || `${label}: 出力はありません`;
+    document.getElementById("panel-tab-output")?.click();
+    showStatusMessage(`${label}: ${result.exit_code === 0 ? "成功" : `終了コード ${result.exit_code ?? "不明"}`}`);
+  } catch (error) {
+    console.error("Failed to run workspace task:", error);
+    showToast(`タスクを実行できませんでした: ${error}`, "error");
   }
 }
 

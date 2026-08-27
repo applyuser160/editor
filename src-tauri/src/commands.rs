@@ -1,6 +1,8 @@
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
+use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
+use crate::test_runner::{discover_test_suites, run_test_suite, TestSuite};
 use crate::workspace::{
     WorkspaceExcludes, WorkspaceFilter, WorkspaceFilterTarget, WorkspaceInfo, WorkspaceState,
     WorkspaceTrust,
@@ -362,6 +364,43 @@ pub async fn resize_pty(
     rows: u16,
 ) -> Result<(), String> {
     state.resize(id, cols, rows)
+}
+
+#[tauri::command]
+pub async fn list_workspace_tasks(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<TaskDefinition>, String> {
+    load_tasks(&state.root())
+}
+
+#[tauri::command]
+pub async fn run_workspace_task(
+    state: State<'_, WorkspaceState>,
+    label: String,
+) -> Result<TaskExecutionResult, String> {
+    state.require_trusted()?;
+    let workspace_root = state.root();
+    let task = load_tasks(&workspace_root)?
+        .into_iter()
+        .find(|task| task.label == label)
+        .ok_or_else(|| format!("Task '{}' was not found", label))?;
+    run_task(task, &workspace_root)
+}
+
+#[tauri::command]
+pub async fn list_workspace_test_suites(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<TestSuite>, String> {
+    Ok(discover_test_suites(&state.root()))
+}
+
+#[tauri::command]
+pub async fn run_workspace_test_suite(
+    state: State<'_, WorkspaceState>,
+    id: String,
+) -> Result<TaskExecutionResult, String> {
+    state.require_trusted()?;
+    run_test_suite(&state.root(), &id)
 }
 
 #[tauri::command]
