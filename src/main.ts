@@ -3872,6 +3872,9 @@ async function renderScmView(container: HTMLElement) {
 
         const row = document.createElement("div");
         row.className = "scm-file-row";
+        row.tabIndex = 0;
+        row.setAttribute("role", "button");
+        row.setAttribute("aria-label", `${filePath} の変更を比較表示`);
         row.innerHTML = `
           <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
             <span style="font-size: 11px; font-weight: bold; padding: 1px 4px; border-radius: 2px;" class="scm-status-tag ${tagClass}">${tagText}</span>
@@ -3880,11 +3883,19 @@ async function renderScmView(container: HTMLElement) {
           <button class="scm-stage-btn" title="${isStaged ? "ステージ解除 (-)" : "ステージに追加 (+)"}">${isStaged ? "−" : "+"}</button>
         `;
 
-        row
-          .querySelector("span:nth-child(2)")
-          ?.addEventListener("click", () => {
-            openGitDiff(filePath);
-          });
+        const showFileDiff = () => {
+          void openGitDiff(filePath);
+        };
+        row.addEventListener("click", (event) => {
+          if ((event.target as HTMLElement).closest(".scm-stage-btn")) return;
+          showFileDiff();
+        });
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            showFileDiff();
+          }
+        });
 
         row
           .querySelector(".scm-stage-btn")
