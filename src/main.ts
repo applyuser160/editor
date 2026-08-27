@@ -11,7 +11,6 @@ import "@xterm/xterm/css/xterm.css";
 import {
   applyProfile,
   COMMAND_LABELS,
-  commandForEvent,
   createProfile,
   deleteProfile,
   exportProfile,
@@ -23,6 +22,7 @@ import {
   initializeSettingsPersistence,
   keybindingFromEvent,
   reloadSettingsPersistence,
+  resolveKeybindingSequence,
   resetKeybindings,
   resolveSettings,
   saveKeybindings,
@@ -4722,6 +4722,24 @@ function executeCommand(id: string) {
     case "save_all":
       saveAllFiles();
       break;
+    case "close_folder":
+      openTabs.clear();
+      activeFilePath = null;
+      updateTabBar();
+      break;
+    case "keyboard_shortcuts":
+      openQuickPick(true);
+      break;
+    case "editor_find":
+      editor1?.trigger("shortcut", "actions.find", null);
+      break;
+    case "editor_replace":
+      editor1?.trigger(
+        "shortcut",
+        "editor.action.startFindReplaceAction",
+        null,
+      );
+      break;
     case "new_file":
       document.getElementById("btn-new-file")?.click();
       break;
@@ -4818,6 +4836,9 @@ function executeCommand(id: string) {
         .querySelector<HTMLButtonElement>('[data-view="settings"]')
         ?.click();
       break;
+    case "open_symbol":
+      editor1?.trigger("shortcut", "editor.action.quickOutline", null);
+      break;
     case "quick_open":
       openQuickPick(false);
       break;
@@ -4827,8 +4848,27 @@ function executeCommand(id: string) {
     case "goto_def":
       performGoToDefinition();
       break;
+    case "peek_definition":
+      editor1?.trigger("shortcut", "editor.action.peekDefinition", null);
+      break;
+    case "find_references":
+      editor1?.trigger(
+        "shortcut",
+        "editor.action.referenceSearch.trigger",
+        null,
+      );
+      break;
     case "format_doc":
       formatCurrentDocument();
+      break;
+    case "run_without_debugging":
+      showStatusMessage("プログラムを実行中...");
+      break;
+    case "navigate_back":
+      editor1?.trigger("shortcut", "workbench.action.navigateBack", null);
+      break;
+    case "navigate_forward":
+      editor1?.trigger("shortcut", "workbench.action.navigateForward", null);
       break;
     case "close_tab":
       if (activeFilePath) closeTab(activeFilePath);
@@ -5398,26 +5438,89 @@ function setupStatusBarInteractions() {
 }
 
 // 20. Global Shortcuts & Status Bar
+const SHORTCUT_CHORD_TIMEOUT_MS = 1_500;
+let pendingShortcutKeys: string[] = [];
+let pendingShortcutTimer: number | null = null;
+
+function clearPendingShortcut(): void {
+  pendingShortcutKeys = [];
+  if (pendingShortcutTimer !== null) {
+    window.clearTimeout(pendingShortcutTimer);
+    pendingShortcutTimer = null;
+  }
+}
+
+function armShortcutChord(keys: string[]): void {
+  clearPendingShortcut();
+  pendingShortcutKeys = keys;
+  pendingShortcutTimer = window.setTimeout(
+    clearPendingShortcut,
+    SHORTCUT_CHORD_TIMEOUT_MS,
+  );
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(
+    element &&
+    (element.tagName === "INPUT" ||
+      element.tagName === "TEXTAREA" ||
+      element.isContentEditable),
+  );
+}
+
+function isGlobalShortcut(event: KeyboardEvent): boolean {
+  return (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    /^F\d{1,2}$/.test(event.key)
+  );
+}
+
 function setupShortcuts() {
-  window.addEventListener("keydown", (e) => {
-    const target = e.target as HTMLElement | null;
-    const isTextInput =
-      (target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable) &&
-      !target?.classList.contains("inputarea");
-    const command = isTextInput ? null : commandForEvent(e);
-    if (command) {
-      e.preventDefault();
-      executeCommand(command);
-      return;
-    }
-    if (e.key === "Escape") {
-      closeGlobalMenu();
-      closeQuickPick();
-      document.getElementById("confirm-modal")?.classList.add("hidden");
-    }
-  });
+  // Register in the capture phase because Monaco can consume keydown events in
+  // its editor input area before a bubbling window listener receives them.
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.isComposing) return;
+
+      const pressedKey = keybindingFromEvent(event);
+      const wasChordPending = pendingShortcutKeys.length > 0;
+      const resolution = resolveKeybindingSequence([
+        ...pendingShortcutKeys,
+        pressedKey,
+      ]);
+      if (resolution.pending) {
+        event.preventDefault();
+        event.stopPropagation();
+        armShortcutChord([...pendingShortcutKeys, pressedKey]);
+        return;
+      }
+
+      clearPendingShortcut();
+      const command = resolution.command;
+      const canRunCommand =
+        command &&
+        (wasChordPending ||
+          !isTextEntryTarget(event.target) ||
+          isGlobalShortcut(event));
+      if (canRunCommand) {
+        event.preventDefault();
+        event.stopPropagation();
+        executeCommand(command);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        closeGlobalMenu();
+        closeQuickPick();
+        document.getElementById("confirm-modal")?.classList.add("hidden");
+      }
+    },
+    { capture: true },
+  );
 }
 
 function updateStatusBar(path: string) {
