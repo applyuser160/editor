@@ -1,5 +1,7 @@
 # VS Code on Tauri v2 統合システム設計書 (C4 Model 準拠)
 
+> **文書ステータス — 将来仕様**: 本書は設計・要件上の目標を記録するものであり、記載内容が実装済みであることを示しません。現在の実装状況と制限は [プロジェクト状況](../project-status.md) を参照してください。
+
 > 本ドキュメントは、Microsoft VS Code のフロントエンド（Workbench UI / Monaco Editor）と Rust バックエンド（Tauri v2 / Tokio）を統合するアーキテクチャ設計書です。
 
 ---

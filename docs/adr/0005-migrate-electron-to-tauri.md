@@ -1,41 +1,33 @@
-# ADR 0005: Electron から Tauri v2 への移行
+# ADR-0005: Tauri v2 の採用
 
-* **ステータス:** 承認済み (Accepted)
-* **日付:** 2026-08-22
-* **意思決定者:** Syun
+- **ステータス:** Accepted
+- **決定者:** Syun
+- **初版作成日:** 2026-08-22
+- **状態確認日:** 2026-08-27
+- **関連文書:** [プロジェクト状況](../project-status.md)
 
----
+## コンテキスト
 
-## 文脈と課題 (Context and Problem Statement)
+Oxide Editor は Rust バックエンドと OS WebView を用いるデスクトップアプリケーションとして Tauri v2 を採用しています。フロントエンドは Monaco Editor を利用します。この ADR はフレームワーク採用の記録であり、VS Code 機能・拡張 API の完全な移植または性能目標の達成を示すものではありません。
 
-VS Code の完全な操作性と拡張機能エコシステムを保ちながら、メモリ消費量の削減（500MB+ → 100MB未満）と高速起動（2秒超 → 300ミリ秒未満）を両立させるための最適なデスクトップフレームワークを選定する必要がありました。
+## 検討した選択肢
 
----
+1. Electron を維持し、Native Addon を追加する
+2. ピュア Rust GUI で再実装する
+3. Tauri v2 を利用する
 
-## 検討した選択肢 (Considered Options)
+## 決定
 
-1. **現行 Electron を維持し、Node.js 側を部分的に Native Addon で最適化**
-2. **ピュア Rust GUI（GPUI / Egui）でフロントエンドも含めゼロから再実装**
-3. **Tauri v2（Rust Core + OS システム WebView）へ完全移行**
+選択肢 3 の **Tauri v2** を採用します。現行の `src-tauri` クレートは Tauri を、フロントエンドは TypeScript と Monaco を利用しています。Tauri への移行完了ではなく、Tauri を基盤として開発する判断です。
 
----
+## 検証状況
 
-## 決定結果 (Decision Outcome)
+| 項目 | 状態 |
+|---|---|
+| Tauri バックエンドの採用 | 実装済み |
+| Monaco を利用したフロントエンド | 実装済み |
+| 常駐メモリ、バイナリサイズ、起動時間 | 未検証 |
+| Node.js Sidecar による VS Code 拡張互換 | 未実装 |
+| VS Code Marketplace / `vscode.*` API 互換 | 未実装 |
 
-**選択肢 3: 「Tauri v2 への完全移行」** を採用しました。
-
-### 決定理由 (Rationale):
-- **フロントエンド資産の継承:** Monaco Editor、VS Code Workbench UI（CSS/DOM）、および拡張機能 UI のエコシステムをそのまま再利用可能。
-- **圧倒的な軽量化:** システム標準の WebView（WebView2 / WebKit）を利用することで Chromium をバンドルする必要がなくなり、常駐メモリ 85MB、バイナリサイズ 18MB を達成。
-- **高スループット Rust バックエンド:** PTY 端末、ファイル監視 (`notify`)、ファイル I/O、LSP クライアントをマルチスレッドの Tokio でネイティブ実行可能。
-
----
-
-## プラスの影響 (Positive Consequences)
-- メモリ消費量が約 80% 削減（アイドル時 85MB）。
-- 起動時間が約 7.5 倍高速化（320ms）。
-- Node.js Sidecar 連携により、VS Code Marketplace の拡張機能との 100% 互換性を維持。
-
-## マイナスの影響 (Negative Consequences)
-- Linux 環境において `webkit2gtk-4.1` の依存関係が必要。
-- 大容量バイナリ転送時に Tauri IPC Channel を適切に設計する必要がある。
+性能値、削減率、API 互換率は、対応する再現可能な測定・E2E テストが公開されるまで主張しません。
