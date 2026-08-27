@@ -923,7 +923,8 @@ pub async fn git_get_file_comparison(
     let absolute = state.resolve_path(&path)?;
     let relative = relative_git_path(&workspace_root, &absolute)?;
     let modified = if absolute.exists() {
-        std::fs::read_to_string(&absolute).map_err(|_| format!("Cannot compare binary or unreadable file: {}", path))?
+        std::fs::read_to_string(&absolute)
+            .map_err(|_| format!("Cannot compare binary or unreadable file: {}", path))?
     } else {
         String::new()
     };
@@ -933,11 +934,16 @@ pub async fn git_get_file_comparison(
         .output()
         .map_err(|error| format!("git show failed: {error}"))?;
     let original = if original_result.status.success() {
-        String::from_utf8(original_result.stdout).map_err(|_| format!("Cannot compare binary file: {}", path))?
+        String::from_utf8(original_result.stdout)
+            .map_err(|_| format!("Cannot compare binary file: {}", path))?
     } else {
         String::new()
     };
-    Ok(GitFileComparison { path, original, modified })
+    Ok(GitFileComparison {
+        path,
+        original,
+        modified,
+    })
 }
 
 #[tauri::command]
@@ -955,7 +961,10 @@ pub async fn git_get_merge_versions(
             .output()
             .map_err(|error| format!("git show failed: {error}"))?;
         if !output.status.success() {
-            return Err(format!("No {stage}-way merge content is available for '{}'", path));
+            return Err(format!(
+                "No {stage}-way merge content is available for '{}'",
+                path
+            ));
         }
         String::from_utf8(output.stdout).map_err(|_| format!("Cannot merge binary file: {}", path))
     };
