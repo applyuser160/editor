@@ -2,6 +2,7 @@ use crate::debug_config::{load_configurations, validate_configuration, DebugConf
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
+use crate::task_runner::{run_task, TaskDefinition, TaskExecutionResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -907,6 +908,13 @@ fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
         }
     }
     Ok(files)
+}
+
+#[tauri::command]
+pub async fn run_named_task(task: TaskDefinition) -> Result<TaskExecutionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_task(task))
+        .await
+        .map_err(|error| format!("Task runner failed: {}", error))?
 }
 
 #[tauri::command]
