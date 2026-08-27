@@ -3,6 +3,7 @@ pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
+pub mod task_runner;
 
 use extension_host::ExtensionHostState;
 use file_watcher::FileWatcherManager;
@@ -59,6 +60,7 @@ pub fn run() {
             commands::git_stage_file,
             commands::git_unstage_file,
             commands::execute_terminal_command,
+            commands::run_named_task,
             commands::get_workspace_path,
             commands::reveal_in_os_explorer,
             commands::replace_in_workspace
