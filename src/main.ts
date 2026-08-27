@@ -1664,9 +1664,12 @@ async function setupFileWatcherListener() {
 async function initExtensionHost() {
   try {
     const statusMsg = await invoke<string>("start_extension_sidecar");
+    const runtime = await invoke<{ running: boolean; active_extensions: string[] }>("get_extension_runtime_status");
     const statusEl = document.getElementById("window-status");
     if (statusEl) {
-      statusEl.textContent = statusMsg.includes("Node.js") ? "Extension Host (Node.js) Ready" : "Native & WASM Runtime";
+      statusEl.textContent = runtime.running
+        ? `Extension Host: ${runtime.active_extensions.length} active`
+        : statusMsg;
     }
   } catch (e) {
     console.error("Extension host init error:", e);

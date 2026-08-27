@@ -43,6 +43,7 @@ pub fn run() {
             commands::git_checkout_branch,
             commands::git_create_branch,
             commands::get_installed_extensions,
+            commands::get_extension_runtime_status,
             commands::start_extension_sidecar,
             commands::spawn_pty,
             commands::write_pty,
