@@ -1,6 +1,7 @@
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
 use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
+use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
 use crate::workspace::{WorkspaceInfo, WorkspaceState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -90,7 +91,10 @@ pub async fn search_openvsx_extensions(query: String) -> Result<Vec<OpenVsxExten
     let url = if q.is_empty() {
         "https://open-vsx.org/api/-/search?size=15&sortBy=downloadCount&sortOrder=desc".to_string()
     } else {
-        format!("https://open-vsx.org/api/-/search?query={}&size=15", urlencoding_simple(q))
+        format!(
+            "https://open-vsx.org/api/-/search?query={}&size=15",
+            urlencoding_simple(q)
+        )
     };
 
     let client = reqwest::Client::builder()
@@ -98,27 +102,61 @@ pub async fn search_openvsx_extensions(query: String) -> Result<Vec<OpenVsxExten
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&url).send().await.map_err(|e| format!("Network request failed: {}", e))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Network request failed: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("Open VSX returned HTTP {}", resp.status()));
     }
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
     let mut results = Vec::new();
 
     if let Some(extensions) = json.get("extensions").and_then(|e| e.as_array()) {
         for ext in extensions {
-            let namespace = ext.get("namespace").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = ext.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let version = ext.get("version").and_then(|v| v.as_str()).unwrap_or("1.0.0").to_string();
-            let display_name = ext.get("displayName").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let description = ext.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let namespace = ext
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = ext
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let version = ext
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1.0.0")
+                .to_string();
+            let display_name = ext
+                .get("displayName")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let description = ext
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let download_count = ext.get("downloadCount").and_then(|v| v.as_u64());
-            
+
             let files = ext.get("files");
-            let icon_url = files.and_then(|f| f.get("icon")).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let download_url = files.and_then(|f| f.get("download")).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let url = ext.get("url").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let icon_url = files
+                .and_then(|f| f.get("icon"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let download_url = files
+                .and_then(|f| f.get("download"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let url = ext
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             results.push(OpenVsxExtension {
                 namespace,
@@ -166,18 +204,30 @@ pub async fn install_openvsx_extension(
         }
     }
 
-    let url = download_url.ok_or_else(|| "Open VSX did not provide a VSIX download URL".to_string())?;
+    let url =
+        download_url.ok_or_else(|| "Open VSX did not provide a VSIX download URL".to_string())?;
     validate_openvsx_download_url(&url)?;
-    let client = reqwest::Client::builder().user_agent("Oxide-Editor/0.1.0").build()
+    let client = reqwest::Client::builder()
+        .user_agent("Oxide-Editor/0.1.0")
+        .build()
         .map_err(|error| error.to_string())?;
-    let response = client.get(&url).send().await
+    let response = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|error| format!("Failed to download: {}", error))?;
     if !response.status().is_success() {
-        return Err(format!("Open VSX download returned HTTP {}", response.status()));
+        return Err(format!(
+            "Open VSX download returned HTTP {}",
+            response.status()
+        ));
     }
     if let Some(content_length) = response.content_length() {
         if content_length > MAX_EXTENSION_DOWNLOAD_BYTES {
-            return Err(format!("Extension exceeds the {} MiB download limit", MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024));
+            return Err(format!(
+                "Extension exceeds the {} MiB download limit",
+                MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024
+            ));
         }
     }
     let bytes = response
@@ -186,7 +236,10 @@ pub async fn install_openvsx_extension(
         .map_err(|error| format!("Failed to read VSIX bytes: {}", error))?;
     let manifest = state.install_vsix(&id, &bytes)?;
 
-    Ok(format!("Extension '{}@{}' installed successfully", manifest.id, manifest.version))
+    Ok(format!(
+        "Extension '{}@{}' installed successfully",
+        manifest.id, manifest.version
+    ))
 }
 
 #[tauri::command]
@@ -226,7 +279,10 @@ pub async fn git_list_branches(state: State<'_, WorkspaceState>) -> Result<Vec<S
 }
 
 #[tauri::command]
-pub async fn git_checkout_branch(state: State<'_, WorkspaceState>, branch: String) -> Result<String, String> {
+pub async fn git_checkout_branch(
+    state: State<'_, WorkspaceState>,
+    branch: String,
+) -> Result<String, String> {
     let output = Command::new("git")
         .current_dir(state.root())
         .args(["checkout", branch.trim()])
@@ -241,7 +297,10 @@ pub async fn git_checkout_branch(state: State<'_, WorkspaceState>, branch: Strin
 }
 
 #[tauri::command]
-pub async fn git_create_branch(state: State<'_, WorkspaceState>, new_branch: String) -> Result<String, String> {
+pub async fn git_create_branch(
+    state: State<'_, WorkspaceState>,
+    new_branch: String,
+) -> Result<String, String> {
     let output = Command::new("git")
         .current_dir(state.root())
         .args(["checkout", "-b", new_branch.trim()])
@@ -249,7 +308,10 @@ pub async fn git_create_branch(state: State<'_, WorkspaceState>, new_branch: Str
         .map_err(|e| format!("git checkout -b failed: {}", e))?;
 
     if output.status.success() {
-        Ok(format!("Created and switched to branch '{}'", new_branch.trim()))
+        Ok(format!(
+            "Created and switched to branch '{}'",
+            new_branch.trim()
+        ))
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
@@ -281,11 +343,7 @@ pub async fn spawn_pty(
 }
 
 #[tauri::command]
-pub async fn write_pty(
-    state: State<'_, PtyState>,
-    id: u32,
-    data: String,
-) -> Result<(), String> {
+pub async fn write_pty(state: State<'_, PtyState>, id: u32, data: String) -> Result<(), String> {
     state.write(id, data)
 }
 
@@ -300,7 +358,29 @@ pub async fn resize_pty(
 }
 
 #[tauri::command]
-pub async fn list_workspace_files(state: State<'_, WorkspaceState>) -> Result<Vec<FileEntry>, String> {
+pub async fn list_workspace_tasks(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<TaskDefinition>, String> {
+    load_tasks(&state.root())
+}
+
+#[tauri::command]
+pub async fn run_workspace_task(
+    state: State<'_, WorkspaceState>,
+    label: String,
+) -> Result<TaskExecutionResult, String> {
+    let workspace_root = state.root();
+    let task = load_tasks(&workspace_root)?
+        .into_iter()
+        .find(|task| task.label == label)
+        .ok_or_else(|| format!("Task '{}' was not found", label))?;
+    run_task(task, &workspace_root)
+}
+
+#[tauri::command]
+pub async fn list_workspace_files(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<FileEntry>, String> {
     let workspace_root = state.root();
     let mut entries = Vec::new();
     scan_dir_recursive(&workspace_root, &workspace_root, 0, &mut entries, 30)?;
@@ -338,7 +418,11 @@ fn scan_dir_recursive(
         }
 
         let is_dir = file_type.is_dir();
-        let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
+        let relative_path = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
 
         entries.push(FileEntry {
             name: file_name,
@@ -356,21 +440,36 @@ fn scan_dir_recursive(
 }
 
 #[tauri::command]
-pub async fn read_file_content(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
+pub async fn read_file_content(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<String, String> {
     let full_path = get_absolute_path(&state, &path)?;
     let bytes = std::fs::read(&full_path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
-    
+
     // バイナリファイル判定（先頭8KB内にNULLバイトがあるか、またはUTF-8として不正な場合）
     let sample = &bytes[..std::cmp::min(bytes.len(), 8192)];
     if sample.contains(&0) {
-        return Err(format!("BINARY_FILE: '{}' はバイナリファイルのためテキストエディタで開けません", path));
+        return Err(format!(
+            "BINARY_FILE: '{}' はバイナリファイルのためテキストエディタで開けません",
+            path
+        ));
     }
 
-    String::from_utf8(bytes).map_err(|_| format!("BINARY_FILE: '{}' はテキストとしてデコードできません（非UTF-8またはバイナリ）", path))
+    String::from_utf8(bytes).map_err(|_| {
+        format!(
+            "BINARY_FILE: '{}' はテキストとしてデコードできません（非UTF-8またはバイナリ）",
+            path
+        )
+    })
 }
 
 #[tauri::command]
-pub async fn write_file_content(state: State<'_, WorkspaceState>, path: String, content: String) -> Result<(), String> {
+pub async fn write_file_content(
+    state: State<'_, WorkspaceState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     let full_path = get_absolute_path(&state, &path)?;
     if let Some(parent) = full_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -391,7 +490,10 @@ pub async fn create_file(state: State<'_, WorkspaceState>, path: String) -> Resu
 }
 
 #[tauri::command]
-pub async fn create_directory(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+pub async fn create_directory(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<(), String> {
     let full_path = get_absolute_path(&state, &path)?;
     std::fs::create_dir_all(&full_path).map_err(|e| format!("Failed to create dir {}: {}", path, e))
 }
@@ -400,24 +502,34 @@ pub async fn create_directory(state: State<'_, WorkspaceState>, path: String) ->
 pub async fn delete_file(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
     let full_path = get_absolute_path(&state, &path)?;
     if full_path.is_dir() {
-        std::fs::remove_dir_all(&full_path).map_err(|e| format!("Failed to delete dir {}: {}", path, e))
+        std::fs::remove_dir_all(&full_path)
+            .map_err(|e| format!("Failed to delete dir {}: {}", path, e))
     } else {
-        std::fs::remove_file(&full_path).map_err(|e| format!("Failed to delete file {}: {}", path, e))
+        std::fs::remove_file(&full_path)
+            .map_err(|e| format!("Failed to delete file {}: {}", path, e))
     }
 }
 
 #[tauri::command]
-pub async fn rename_file(state: State<'_, WorkspaceState>, old_path: String, new_path: String) -> Result<(), String> {
+pub async fn rename_file(
+    state: State<'_, WorkspaceState>,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
     let src = get_absolute_path(&state, &old_path)?;
     let dst = get_absolute_path(&state, &new_path)?;
     if let Some(parent) = dst.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::rename(&src, &dst).map_err(|e| format!("Failed to rename {} to {}: {}", old_path, new_path, e))
+    std::fs::rename(&src, &dst)
+        .map_err(|e| format!("Failed to rename {} to {}: {}", old_path, new_path, e))
 }
 
 #[tauri::command]
-pub async fn reveal_in_os_explorer(state: State<'_, WorkspaceState>, path: String) -> Result<(), String> {
+pub async fn reveal_in_os_explorer(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<(), String> {
     let full_path = get_absolute_path(&state, &path)?;
     #[cfg(target_os = "windows")]
     {
@@ -428,23 +540,21 @@ pub async fn reveal_in_os_explorer(state: State<'_, WorkspaceState>, path: Strin
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = Command::new("open")
-            .arg("-R")
-            .arg(full_path)
-            .spawn();
+        let _ = Command::new("open").arg("-R").arg(full_path).spawn();
     }
     #[cfg(target_os = "linux")]
     {
         let parent = full_path.parent().unwrap_or(&full_path);
-        let _ = Command::new("xdg-open")
-            .arg(parent)
-            .spawn();
+        let _ = Command::new("xdg-open").arg(parent).spawn();
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_file_stat(state: State<'_, WorkspaceState>, path: String) -> Result<FileStat, String> {
+pub async fn get_file_stat(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<FileStat, String> {
     let full_path = get_absolute_path(&state, &path)?;
     let metadata = std::fs::metadata(&full_path).map_err(|e| e.to_string())?;
     let extension = full_path
@@ -524,7 +634,11 @@ fn search_recursive_regex(
         if file_type.is_dir() {
             search_recursive_regex(root, &path, re, matches, max_depth - 1)?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
-            let relative_path = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
             for (idx, line) in content.lines().enumerate() {
                 if re.is_match(line) {
                     matches.push(SearchMatch {
@@ -643,13 +757,20 @@ pub async fn git_get_status(state: State<'_, WorkspaceState>) -> Result<GitStatu
         .collect();
 
     Ok(GitStatusResult {
-        branch: if branch_out.is_empty() { "main".to_string() } else { branch_out },
+        branch: if branch_out.is_empty() {
+            "main".to_string()
+        } else {
+            branch_out
+        },
         changed_files,
     })
 }
 
 #[tauri::command]
-pub async fn git_commit(state: State<'_, WorkspaceState>, message: String) -> Result<String, String> {
+pub async fn git_commit(
+    state: State<'_, WorkspaceState>,
+    message: String,
+) -> Result<String, String> {
     let trimmed = message.trim();
     if trimmed.is_empty() {
         return Err("Commit message cannot be empty".to_string());
@@ -708,7 +829,10 @@ pub async fn git_pull(state: State<'_, WorkspaceState>) -> Result<String, String
 }
 
 #[tauri::command]
-pub async fn git_stage_file(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
+pub async fn git_stage_file(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<String, String> {
     let out = Command::new("git")
         .current_dir(state.root())
         .args(["add", &path])
@@ -723,7 +847,10 @@ pub async fn git_stage_file(state: State<'_, WorkspaceState>, path: String) -> R
 }
 
 #[tauri::command]
-pub async fn git_unstage_file(state: State<'_, WorkspaceState>, path: String) -> Result<String, String> {
+pub async fn git_unstage_file(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<String, String> {
     let out = Command::new("git")
         .current_dir(state.root())
         .args(["restore", "--staged", &path])
@@ -771,15 +898,10 @@ fn get_absolute_path(state: &WorkspaceState, path_str: &str) -> Result<PathBuf, 
 
 #[tauri::command]
 pub async fn find_rust_stdlib_definition(symbol: String) -> Result<Option<SearchMatch>, String> {
-    let output = Command::new("rustc")
-        .arg("--print")
-        .arg("sysroot")
-        .output();
+    let output = Command::new("rustc").arg("--print").arg("sysroot").output();
 
     let sysroot = match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => return Ok(None),
     };
 
@@ -878,7 +1000,10 @@ fn walk_rs_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
 }
 
 #[tauri::command]
-pub async fn execute_terminal_command(state: State<'_, WorkspaceState>, command: String) -> Result<String, String> {
+pub async fn execute_terminal_command(
+    state: State<'_, WorkspaceState>,
+    command: String,
+) -> Result<String, String> {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return Ok(String::new());
@@ -919,24 +1044,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_string_definition() {
-        let res = find_rust_stdlib_definition("String".to_string()).await.unwrap();
-        assert!(res.is_some(), "Expected to find definition for String in stdlib");
+        let res = find_rust_stdlib_definition("String".to_string())
+            .await
+            .unwrap();
+        assert!(
+            res.is_some(),
+            "Expected to find definition for String in stdlib"
+        );
         let match_res = res.unwrap();
         assert!(
             match_res.file_path.ends_with("string.rs"),
             "Expected file to be string.rs, got: {}",
             match_res.file_path
         );
-        assert_eq!(match_res.line_number, 360, "Expected line number 360 for String struct");
-        println!("✔ Found String definition at: {}:{}", match_res.file_path, match_res.line_number);
+        assert_eq!(
+            match_res.line_number, 360,
+            "Expected line number 360 for String struct"
+        );
+        println!(
+            "✔ Found String definition at: {}:{}",
+            match_res.file_path, match_res.line_number
+        );
     }
 
     #[tokio::test]
     async fn test_find_vec_definition() {
-        let res = find_rust_stdlib_definition("Vec".to_string()).await.unwrap();
-        assert!(res.is_some(), "Expected to find definition for Vec in stdlib");
+        let res = find_rust_stdlib_definition("Vec".to_string())
+            .await
+            .unwrap();
+        assert!(
+            res.is_some(),
+            "Expected to find definition for Vec in stdlib"
+        );
         let match_res = res.unwrap();
-        println!("✔ Found Vec definition at: {}:{}", match_res.file_path, match_res.line_number);
+        println!(
+            "✔ Found Vec definition at: {}:{}",
+            match_res.file_path, match_res.line_number
+        );
     }
 
     #[test]
