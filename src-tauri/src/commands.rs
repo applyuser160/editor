@@ -48,6 +48,54 @@ pub struct OpenVsxExtension {
     pub url: Option<String>,
 }
 
+const MAX_EXTENSION_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+
+fn validate_openvsx_download_url(raw_url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(raw_url)
+        .map_err(|_| "Extension download URL is invalid".to_string())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Extension download URL must include a host".to_string())?;
+
+    if parsed.scheme() != "https" {
+        return Err("Extension downloads must use HTTPS".to_string());
+    }
+    if host != "open-vsx.org" && !host.ends_with(".open-vsx.org") {
+        return Err("Extension download host is not trusted".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_git_branch_name(raw_branch: &str) -> Result<&str, String> {
+    let branch = raw_branch.trim();
+    let has_forbidden_character = branch.chars().any(|ch| {
+        ch.is_control()
+            || ch.is_whitespace()
+            || matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    });
+    let has_invalid_segment = branch.split('/').any(|segment| segment.is_empty() || segment.ends_with(".lock"));
+
+    if branch.is_empty()
+        || branch.len() > 255
+        || branch == "."
+        || branch == "@"
+        || branch.starts_with('-')
+        || branch.starts_with('.')
+        || branch.ends_with('.')
+        || branch.ends_with('/')
+        || branch.contains("..")
+        || branch.contains("//")
+        || branch.contains("@{")
+        || has_forbidden_character
+        || has_invalid_segment
+    {
+        return Err("Invalid Git branch name".to_string());
+    }
+
+    Ok(branch)
+}
+
 #[tauri::command]
 pub async fn lsp_start_server(
     app: AppHandle,
@@ -160,22 +208,33 @@ pub async fn install_openvsx_extension(
         }
     }
 
-    // 実際のダウンロード処理
+    // Open VSXから取得したHTTPSダウンロードURLだけを受け付け、サイズを制限する。
     if let Some(url) = download_url {
+        validate_openvsx_download_url(&url)?;
         let client = reqwest::Client::new();
         let resp = client.get(&url).send().await.map_err(|e| format!("Failed to download: {}", e))?;
-        if resp.status().is_success() {
-            let bytes = resp.bytes().await.map_err(|e| format!("Failed to read bytes: {}", e))?;
-            
-            // ローカルディレクトリに保存
-            let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            ext_dir.push("oxide-editor");
-            ext_dir.push("extensions");
-            std::fs::create_dir_all(&ext_dir).map_err(|e| e.to_string())?;
-            
-            let file_path = ext_dir.join(format!("{}.vsix", id));
-            std::fs::write(&file_path, bytes).map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("Extension download returned HTTP {}", resp.status()));
         }
+        if let Some(content_length) = resp.content_length() {
+            if content_length > MAX_EXTENSION_DOWNLOAD_BYTES {
+                return Err(format!("Extension exceeds the {} MiB download limit", MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024));
+            }
+        }
+
+        let bytes = resp.bytes().await.map_err(|e| format!("Failed to read bytes: {}", e))?;
+        if bytes.len() as u64 > MAX_EXTENSION_DOWNLOAD_BYTES {
+            return Err(format!("Extension exceeds the {} MiB download limit", MAX_EXTENSION_DOWNLOAD_BYTES / 1024 / 1024));
+        }
+
+        // ローカルディレクトリに保存
+        let mut ext_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        ext_dir.push("oxide-editor");
+        ext_dir.push("extensions");
+        std::fs::create_dir_all(&ext_dir).map_err(|e| e.to_string())?;
+
+        let file_path = ext_dir.join(format!("{}.vsix", id));
+        std::fs::write(&file_path, bytes).map_err(|e| e.to_string())?;
     }
 
     let mut exts = state.extensions.lock().unwrap();
@@ -233,8 +292,9 @@ pub async fn git_list_branches() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn git_checkout_branch(branch: String) -> Result<String, String> {
+    let branch = validate_git_branch_name(&branch)?;
     let output = Command::new("git")
-        .args(["checkout", branch.trim()])
+        .args(["checkout", branch])
         .output()
         .map_err(|e| format!("git checkout failed: {}", e))?;
 
@@ -247,8 +307,9 @@ pub async fn git_checkout_branch(branch: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn git_create_branch(new_branch: String) -> Result<String, String> {
+    let new_branch = validate_git_branch_name(&new_branch)?;
     let output = Command::new("git")
-        .args(["checkout", "-b", new_branch.trim()])
+        .args(["checkout", "-b", new_branch])
         .output()
         .map_err(|e| format!("git checkout -b failed: {}", e))?;
 
@@ -684,7 +745,7 @@ pub async fn git_pull() -> Result<String, String> {
 #[tauri::command]
 pub async fn git_stage_file(path: String) -> Result<String, String> {
     let out = Command::new("git")
-        .args(["add", &path])
+        .args(["add", "--", &path])
         .output()
         .map_err(|e| format!("git add failed: {}", e))?;
 
@@ -698,7 +759,7 @@ pub async fn git_stage_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn git_unstage_file(path: String) -> Result<String, String> {
     let out = Command::new("git")
-        .args(["restore", "--staged", &path])
+        .args(["restore", "--staged", "--", &path])
         .output()
         .map_err(|e| format!("git restore failed: {}", e))?;
 
@@ -891,6 +952,26 @@ mod tests {
         assert!(res.is_some(), "Expected to find definition for Vec in stdlib");
         let match_res = res.unwrap();
         println!("✔ Found Vec definition at: {}:{}", match_res.file_path, match_res.line_number);
+    }
+
+    #[test]
+    fn git_branch_validation_rejects_option_like_and_invalid_refs() {
+        assert_eq!(validate_git_branch_name("feature/secure-branch").unwrap(), "feature/secure-branch");
+        for invalid in ["", "-c core.pager=cat", "feature/../main", "feature name", "feature@{1}", "feature/.lock"] {
+            assert!(validate_git_branch_name(invalid).is_err(), "{invalid} should be rejected");
+        }
+    }
+
+    #[test]
+    fn openvsx_download_validation_allows_only_trusted_https_urls() {
+        assert!(validate_openvsx_download_url("https://open-vsx.org/api/acme/tool/1.0.0/file/acme.tool-1.0.0.vsix").is_ok());
+        for invalid in [
+            "http://open-vsx.org/api/acme/tool",
+            "https://example.com/extension.vsix",
+            "not-a-url",
+        ] {
+            assert!(validate_openvsx_download_url(invalid).is_err(), "{invalid} should be rejected");
+        }
     }
 
     #[tokio::test]
