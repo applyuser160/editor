@@ -1,62 +1,70 @@
-# Oxide Editor (🦀 Microsoft VS Code Rust 移植版)
+# Oxide Editor
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org/)
+> **開発中の Tauri v2 ベースのデスクトップコードエディターです。**
 
-**Oxide Editor** は、Microsoft 公式の [`microsoft/vscode`](https://github.com/microsoft/vscode) の内部アーキテクチャ・設計仕様を Rust 製ネイティブフレームワークへ完全移植・再構築する次世代の統合開発環境（IDE）です。  
-VS Code の親しみやすい操作性と拡張機能エコシステムを維持しながら、Electron / Node.js 依存を排し、ミリ秒単位の起動と数十MBのメモリフットプリント、120fps の GPU レンダリングを実現します。
+Oxide Editor は、Tauri v2、TypeScript、および Monaco Editor を用いて構築しているデスクトップコードエディターです。VS Code のワークフローを参考にしていますが、現時点で VS Code の移植版でも完全互換製品でもありません。提供済みの機能、計画中の設計、および未検証事項は、[実装状況とロードマップ](docs/implementation-status.md)で区別して公開しています。
 
----
-  
-## 🌟 主な特徴 & コア仕様
+## 現在利用できる範囲
 
-1. **極小メモリフットプリント & 爆速起動**
-   - ガベージコレクションのない Rust ネイティブバイナリ。常駐メモリ 30MB〜50MB、起動時間 50ms 未満。
-   - GPU 加速による 120fps+ 低遅延テキストレンダリング。
-2. **Monaco Editor コアの完全再現**
-   - `ropey` (PieceTree 互換 Rope データ構造) によるギガバイト級ファイルの超高速編集。
-   - 統合デコレーションシステム（IntervalTree）、行番号、Git 差分マーカー、Minimap（ミニマップ）。
-3. **Workbench UI シェル & 2D Grid エディター分割**
-   - 上下左右の自由なスプリットビュー、タブグループ管理、ドラッグリサイズ。
-   - ActivityBar、SideBar（Explorer, Search, SCM, Extensions）、StatusBar、TitleBar。
-4. **QuickPick & Command Palette**
-   - `Ctrl+P` (QuickOpen ファジーファイル検索) & `Ctrl+Shift+P` (コマンドパレット)。
-5. **プロセス分離 Extension Host**
-   - UI スレッドをブロックしないサンドボックスでの `vscode.*` API エミュレーション & VSIX 拡張機能実行。
-6. **統合ターミナル (Integrated Terminal)**
-   - ConPTY / openpty 連携による高速仮想端末エミュレーション。
+| 領域 | 提供する機能 | 留意点 |
+|---|---|---|
+| 編集 | Monaco Editor による基本編集、テーマ、フォントサイズ、タブ幅、ミニマップ | ネイティブ Rust 製テキストバッファではありません。 |
+| ワークスペース | 単一ルートの選択、最近使ったワークスペース、ファイル CRUD、ワークスペース内検索 | 複数ルート、Workspace Trust、除外規則は未対応です。 |
+| 開発支援 | 統合ターミナル、Git の基本操作、LSP の起動・リクエスト基盤 | タスク、デバッグ、包括的な診断・リファクタリングは継続開発中です。 |
+| 拡張機能 | Open VSX 検索、VSIX の検証・展開・永続化・有効化/無効化 | VSIX の拡張機能 API は実行されず、`vscode.*` 互換は提供しません。 |
+| 設定 | アプリ内の設定、キーバインド、プロファイル | 現在はブラウザの `localStorage` に保存します。外部編集可能な JSON 設定は未対応です。 |
 
----
+## 現在提供しないもの
 
-## 📚 ドキュメント & ナレッジベース体系
+以下は設計または将来構想であり、現行リポジトリには実装がありません。
 
-### 📋 全ファイル解析チェックリスト & 調査書
-- 📊 [VS Code 全ファイル網羅的解析チェックリスト (360/360 完了)](docs/checklist/vscode-full-analysis-checklist.md)
-- 🔬 [実装移行に向けた技術調査・ギャップ分析レポート (Ready for Implementation)](docs/research/implementation-readiness-and-gap-analysis.md)
-- 🔬 [Electron から Tauri v2 への移行に関する詳細技術調査書](docs/research/electron-to-tauri-migration-research.md)
-- 🔬 [Electron 置換のための Rust GUI フレームワーク徹底比較調査書](docs/research/rust-gui-framework-comparison.md)
-- 🛡️ [非機能要件チェックリスト（IPA準拠）](docs/checklist/nfr.md)
-- 📝 [アーキテクチャ決定記録 (ADR)](docs/adr/README.md)
+- WGPU / Vello によるネイティブ GPU レンダリング
+- `ropey` によるネイティブテキストバッファ
+- Tree-sitter による構文解析
+- WASM / WASI による拡張機能サンドボックス
+- VS Code 拡張機能 API または設定形式との完全互換
+- 起動時間、メモリ使用量、フレームレート、対応 OS、セキュリティ特性に関する保証値
 
-### 📑 レイヤー別 機能要件定義書 (ISO 29148 準拠)
-- ⚙️ [1. Base レイヤー 要件定義書](docs/requirements/base-layer-requirements.md)
-- 💉 [2. Platform サービス層 要件定義書](docs/requirements/platform-layer-requirements.md)
-- 📄 [3. Monaco Editor コア 要件定義書](docs/requirements/editor-monaco-requirements.md)
-- 🖥️ [4. Workbench UI シェル 要件定義書](docs/requirements/workbench-requirements.md)
-- 🧩 [5. Extension Host 要件定義書](docs/requirements/extension-host-requirements.md)
-- 🌐 [6. Native Shell & Server 要件定義書](docs/requirements/native-shell-server-requirements.md)
+> 性能・互換性・セキュリティに関する数値は、再現可能なベンチマークと E2E 検証が整備されるまで公表しません。詳細は[検証状況](docs/implementation-status.md#検証状況)を参照してください。
 
-### 📐 レイヤー別 アーキテクチャ設計書 (C4 Model 準拠)
-- 🚀 [★ Tauri v2 統合システム設計書](docs/design/tauri-architecture-design.md)
-- ⚙️ [1. Base レイヤー アーキテクチャ設計書](docs/design/base-layer-architecture.md)
-- 💉 [2. Platform サービス層 アーキテクチャ設計書](docs/design/platform-layer-architecture.md)
-- 📄 [3. Monaco Editor コア アーキテクチャ設計書](docs/design/editor-monaco-architecture.md)
-- 🖥️ [4. Workbench UI シェル アーキテクチャ設計書](docs/design/workbench-architecture.md)
-- 🧩 [5. Extension Host 設計書](docs/design/extension-host-design.md)
-- 🌐 [6. Native Shell & Server アーキテクチャ設計書](docs/design/native-shell-server-architecture.md)
+## 開発
 
----
+### 必要な環境
 
-## 📄 ライセンス
+- Node.js と npm
+- Rust stable と Cargo
+- Tauri v2 が要求する OS 依存ライブラリ
+
+### 実行
+
+```bash
+npm install
+npm run tauri dev
+```
+
+### 検証
+
+```bash
+npm run build
+cargo test
+```
+
+フロントエンド専用テストとプルリクエストの品質ゲートは、[Issue #64](https://github.com/applyuser160/editor/issues/64) で追跡しています。
+
+## 文書
+
+| 文書 | 位置 | 目的 |
+|---|---|---|
+| 実装状況とロードマップ | [docs/implementation-status.md](docs/implementation-status.md) | 現在提供する機能、計画、未検証事項の唯一の参照先です。 |
+| ADR | [docs/adr/README.md](docs/adr/README.md) | アーキテクチャ上の意思決定と、その採用状態を記録します。 |
+| 要件定義書 | [docs/requirements/](docs/requirements/) | 将来の受け入れ基準を定義します。実装済みの機能一覧ではありません。 |
+| 設計書 | [docs/design/](docs/design/) | 将来の設計案を記録します。現行実装との差分は実装状況を参照してください。 |
+| 非機能要件チェックリスト | [docs/checklist/nfr.md](docs/checklist/nfr.md) | 要件の検証状態を記録します。 |
+
+## コントリビューション
+
+変更の前に、[オープンIssue](https://github.com/applyuser160/editor/issues)で既存の議論を確認してください。機能追加では、実装範囲、テスト方法、未対応範囲を明記し、実装状況文書と矛盾しないように更新してください。
+
+## ライセンス
 
 MIT License

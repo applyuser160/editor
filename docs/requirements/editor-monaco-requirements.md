@@ -1,6 +1,6 @@
 # Monaco Editor コア 機能要件定義書 (ISO 29148 準拠)
 
-> 本ドキュメントは、Microsoft VS Code の Monaco Editor コア (`src/vs/editor/`) を Rust ネイティブ環境へ移植するための機能要件定義書です。
+> **文書状態: 計画（未実装の要件を含む）。** 本ドキュメントは、Microsoft VS Code の Monaco Editor コア (`src/vs/editor/`) を Rust ネイティブ環境へ移植する場合の機能要件定義書です。現行実装は Monaco Editor を利用しており、ネイティブ編集コアの実装完了を意味しません。現在提供する機能は[実装状況とロードマップ](../implementation-status.md)を参照してください。
 
 ---
 

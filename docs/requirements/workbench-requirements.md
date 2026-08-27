@@ -1,6 +1,6 @@
 # VS Code Workbench (UI Shell) 機能要件定義書 (ISO 29148 準拠)
 
-> 本ドキュメントは、Microsoft VS Code の Workbench UI シェル (`src/vs/workbench/`) を Rust ネイティブ環境へ移植するための機能要件定義書です。
+> **文書状態: 計画（部分実装あり）。** 本ドキュメントは、Microsoft VS Code の Workbench UI シェル (`src/vs/workbench/`) を Rust ネイティブ環境へ移植する場合の機能要件定義書です。現行実装には限定的な編集UI、ファイル操作、検索、Git、ターミナル、拡張機能管理が含まれますが、記載した全機能の実装完了を意味しません。現在提供する機能は[実装状況とロードマップ](../implementation-status.md)を参照してください。
 
 ---
 

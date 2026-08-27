@@ -1,6 +1,6 @@
 # VS Code Platform サービス層 機能要件定義書 (ISO 29148 準拠)
 
-> 本ドキュメントは、Microsoft VS Code のプラットフォームサービス層 (`src/vs/platform/`) を Rust ネイティブ環境へ移植するための機能要件定義書です。
+> **文書状態: 計画（未実装の要件を含む）。** 本ドキュメントは、Microsoft VS Code のプラットフォームサービス層 (`src/vs/platform/`) を Rust ネイティブ環境へ移植する場合の機能要件定義書です。要件の記載は実装完了を意味しません。現在提供する機能は[実装状況とロードマップ](../implementation-status.md)を参照してください。
 
 ---
 

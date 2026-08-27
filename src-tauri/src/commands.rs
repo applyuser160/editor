@@ -3,7 +3,10 @@ use crate::lsp_client::LspState;
 use crate::pty_manager::PtyState;
 use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
 use crate::test_runner::{discover_test_suites, run_test_suite, TestSuite};
-use crate::workspace::{WorkspaceInfo, WorkspaceState};
+use crate::workspace::{
+    WorkspaceExcludes, WorkspaceFilter, WorkspaceFilterTarget, WorkspaceInfo, WorkspaceState,
+    WorkspaceTrust,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -55,10 +58,12 @@ pub struct OpenVsxExtension {
 pub async fn lsp_start_server(
     app: AppHandle,
     state: State<'_, LspState>,
+    workspace: State<'_, WorkspaceState>,
     lang: String,
-    workspace_root: String,
+    _workspace_root: String,
 ) -> Result<String, String> {
-    state.start_server(app, &lang, &workspace_root)
+    workspace.require_trusted()?;
+    state.start_server(app, &lang, &workspace.root().to_string_lossy())
 }
 
 #[tauri::command]
@@ -328,7 +333,9 @@ pub async fn get_installed_extensions(
 #[tauri::command]
 pub async fn start_extension_sidecar(
     state: State<'_, ExtensionHostState>,
+    workspace: State<'_, WorkspaceState>,
 ) -> Result<String, String> {
+    workspace.require_trusted()?;
     state.start_sidecar()
 }
 
@@ -340,6 +347,7 @@ pub async fn spawn_pty(
     cols: u16,
     rows: u16,
 ) -> Result<u32, String> {
+    workspace.require_trusted()?;
     state.spawn(app, cols, rows, workspace.root())
 }
 
@@ -370,6 +378,7 @@ pub async fn run_workspace_task(
     state: State<'_, WorkspaceState>,
     label: String,
 ) -> Result<TaskExecutionResult, String> {
+    state.require_trusted()?;
     let workspace_root = state.root();
     let task = load_tasks(&workspace_root)?
         .into_iter()
@@ -390,6 +399,7 @@ pub async fn run_workspace_test_suite(
     state: State<'_, WorkspaceState>,
     id: String,
 ) -> Result<TaskExecutionResult, String> {
+    state.require_trusted()?;
     run_test_suite(&state.root(), &id)
 }
 
@@ -398,8 +408,16 @@ pub async fn list_workspace_files(
     state: State<'_, WorkspaceState>,
 ) -> Result<Vec<FileEntry>, String> {
     let workspace_root = state.root();
+    let filter = state.filter();
     let mut entries = Vec::new();
-    scan_dir_recursive(&workspace_root, &workspace_root, 0, &mut entries, 30)?;
+    scan_dir_recursive(
+        &workspace_root,
+        &workspace_root,
+        0,
+        &mut entries,
+        30,
+        &filter,
+    )?;
     Ok(entries)
 }
 
@@ -409,6 +427,7 @@ fn scan_dir_recursive(
     depth: usize,
     entries: &mut Vec<FileEntry>,
     max_depth: usize,
+    filter: &WorkspaceFilter,
 ) -> Result<(), String> {
     if depth > max_depth {
         return Ok(());
@@ -424,11 +443,7 @@ fn scan_dir_recursive(
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
         if file_type.is_symlink()
-            || file_name.starts_with('.')
-            || file_name == "target"
-            || file_name == "node_modules"
-            || file_name == "dist"
-            || file_name == ".git"
+            || filter.should_exclude(root, &path, WorkspaceFilterTarget::Files)
         {
             continue;
         }
@@ -448,7 +463,7 @@ fn scan_dir_recursive(
         });
 
         if is_dir {
-            scan_dir_recursive(root, &path, depth + 1, entries, max_depth)?;
+            scan_dir_recursive(root, &path, depth + 1, entries, max_depth, filter)?;
         }
     }
 
@@ -615,8 +630,16 @@ pub async fn search_in_workspace(
         .map_err(|e| format!("Invalid regex: {}", e))?;
 
     let workspace_root = state.root();
+    let filter = state.filter();
     let mut matches = Vec::new();
-    search_recursive_regex(&workspace_root, &workspace_root, &re, &mut matches, 20)?;
+    search_recursive_regex(
+        &workspace_root,
+        &workspace_root,
+        &re,
+        &mut matches,
+        20,
+        &filter,
+    )?;
     Ok(matches)
 }
 
@@ -626,6 +649,7 @@ fn search_recursive_regex(
     re: &regex::Regex,
     matches: &mut Vec<SearchMatch>,
     max_depth: usize,
+    filter: &WorkspaceFilter,
 ) -> Result<(), String> {
     if max_depth == 0 {
         return Ok(());
@@ -638,17 +662,13 @@ fn search_recursive_regex(
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
         if file_type.is_symlink()
-            || file_name.starts_with('.')
-            || file_name == "target"
-            || file_name == "node_modules"
-            || file_name == "dist"
-            || file_name == ".git"
+            || filter.should_exclude(root, &path, WorkspaceFilterTarget::Search)
         {
             continue;
         }
 
         if file_type.is_dir() {
-            search_recursive_regex(root, &path, re, matches, max_depth - 1)?;
+            search_recursive_regex(root, &path, re, matches, max_depth - 1, filter)?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
             let relative_path = path
                 .strip_prefix(root)
@@ -703,17 +723,28 @@ pub async fn replace_in_workspace(
         .map_err(|e| format!("Invalid regex: {}", e))?;
 
     let workspace_root = state.root();
+    let filter = state.filter();
     let mut total_replaced = 0;
-    replace_recursive_regex(&workspace_root, &re, &replace_text, &mut total_replaced, 20)?;
+    replace_recursive_regex(
+        &workspace_root,
+        &workspace_root,
+        &re,
+        &replace_text,
+        &mut total_replaced,
+        20,
+        &filter,
+    )?;
     Ok(total_replaced)
 }
 
 fn replace_recursive_regex(
+    root: &Path,
     current: &Path,
     re: &regex::Regex,
     replace_text: &str,
     total_replaced: &mut usize,
     max_depth: usize,
+    filter: &WorkspaceFilter,
 ) -> Result<(), String> {
     if max_depth == 0 {
         return Ok(());
@@ -726,17 +757,21 @@ fn replace_recursive_regex(
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
 
         if file_type.is_symlink()
-            || file_name.starts_with('.')
-            || file_name == "target"
-            || file_name == "node_modules"
-            || file_name == "dist"
-            || file_name == ".git"
+            || filter.should_exclude(root, &path, WorkspaceFilterTarget::Search)
         {
             continue;
         }
 
         if file_type.is_dir() {
-            replace_recursive_regex(&path, re, replace_text, total_replaced, max_depth - 1)?;
+            replace_recursive_regex(
+                root,
+                &path,
+                re,
+                replace_text,
+                total_replaced,
+                max_depth - 1,
+                filter,
+            )?;
         } else if let Ok(content) = std::fs::read_to_string(&path) {
             if re.is_match(&content) {
                 let replaced = re.replace_all(&content, replace_text).to_string();
@@ -886,11 +921,73 @@ pub async fn get_workspace_path(state: State<'_, WorkspaceState>) -> Result<Stri
 }
 
 #[tauri::command]
+pub async fn get_workspace_folders(
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<WorkspaceInfo>, String> {
+    Ok(state.folders())
+}
+
+#[tauri::command]
 pub async fn set_workspace_root(
     state: State<'_, WorkspaceState>,
     path: String,
 ) -> Result<WorkspaceInfo, String> {
     state.set_root(&path)
+}
+
+#[tauri::command]
+pub async fn add_workspace_folder(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<Vec<WorkspaceInfo>, String> {
+    state.add_folder(&path)
+}
+
+#[tauri::command]
+pub async fn remove_workspace_folder(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<Vec<WorkspaceInfo>, String> {
+    state.remove_folder(&path)
+}
+
+#[tauri::command]
+pub async fn select_workspace_folder(
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<WorkspaceInfo, String> {
+    state.select_folder(&path)
+}
+
+#[tauri::command]
+pub async fn get_workspace_trust(
+    state: State<'_, WorkspaceState>,
+) -> Result<WorkspaceTrust, String> {
+    Ok(state.trust())
+}
+
+#[tauri::command]
+pub async fn set_workspace_trust(
+    state: State<'_, WorkspaceState>,
+    trusted: bool,
+) -> Result<WorkspaceTrust, String> {
+    state.set_trusted(trusted)
+}
+
+#[tauri::command]
+pub async fn get_workspace_excludes(
+    state: State<'_, WorkspaceState>,
+) -> Result<WorkspaceExcludes, String> {
+    Ok(state.excludes())
+}
+
+#[tauri::command]
+pub async fn set_workspace_excludes(
+    state: State<'_, WorkspaceState>,
+    files: Vec<String>,
+    search: Vec<String>,
+) -> Result<WorkspaceExcludes, String> {
+    state.set_excludes(files, search)
 }
 
 #[tauri::command]
@@ -1020,6 +1117,7 @@ pub async fn execute_terminal_command(
     state: State<'_, WorkspaceState>,
     command: String,
 ) -> Result<String, String> {
+    state.require_trusted()?;
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return Ok(String::new());
