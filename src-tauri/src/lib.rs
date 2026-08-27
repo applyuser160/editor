@@ -1,8 +1,10 @@
 pub mod commands;
+pub mod debug_config;
 pub mod extension_host;
 pub mod file_watcher;
 pub mod lsp_client;
 pub mod pty_manager;
+pub mod task_runner;
 pub mod workspace;
 
 use extension_host::ExtensionHostState;

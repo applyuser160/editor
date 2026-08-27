@@ -81,10 +81,16 @@ impl ExtensionHostState {
         self.extensions.lock().unwrap().clone()
     }
 
-    pub fn install_vsix(&self, expected_id: &str, bytes: &[u8]) -> Result<ExtensionManifest, String> {
+    pub fn install_vsix(
+        &self,
+        expected_id: &str,
+        bytes: &[u8],
+    ) -> Result<ExtensionManifest, String> {
         let manifest = parse_vsix_manifest(bytes)?;
         if manifest.id != expected_id {
-            return Err("VSIX manifest identifier does not match the selected extension".to_string());
+            return Err(
+                "VSIX manifest identifier does not match the selected extension".to_string(),
+            );
         }
 
         let archive_path = extension_archive_path(&manifest.id);
@@ -188,7 +194,11 @@ fn builtin_extensions() -> Vec<ExtensionManifest> {
             main: None,
             activation_events: vec![],
             contributes_languages: vec![],
-            contributes_themes: vec!["vscode-dark-plus".to_string(), "vs".to_string(), "hc-black".to_string()],
+            contributes_themes: vec![
+                "vscode-dark-plus".to_string(),
+                "vs".to_string(),
+                "hc-black".to_string(),
+            ],
             enabled: true,
         },
     ]
@@ -199,7 +209,8 @@ fn parse_vsix_manifest(bytes: &[u8]) -> Result<ExtensionManifest, String> {
         return Err("VSIX archive exceeds the 50 MiB size limit".to_string());
     }
 
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|error| format!("Invalid VSIX archive: {}", error))?;
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| format!("Invalid VSIX archive: {}", error))?;
     if archive.len() > MAX_VSIX_ENTRIES {
         return Err("VSIX archive contains too many entries".to_string());
     }
@@ -250,7 +261,8 @@ fn parse_vsix_manifest(bytes: &[u8]) -> Result<ExtensionManifest, String> {
 }
 
 fn extract_vsix(bytes: &[u8], destination: &PathBuf) -> Result<(), String> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|error| format!("Invalid VSIX archive: {}", error))?;
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| format!("Invalid VSIX archive: {}", error))?;
     if archive.len() > MAX_VSIX_ENTRIES {
         return Err("VSIX archive contains too many entries".to_string());
     }
@@ -280,9 +292,9 @@ fn extract_vsix(bytes: &[u8], destination: &PathBuf) -> Result<(), String> {
 fn validate_manifest_field(value: &str, field: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 255
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         return Err(format!("VSIX manifest contains an invalid {}", field));
     }
@@ -333,6 +345,22 @@ fn is_builtin_extension(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    fn vsix_with_entries(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut output = Cursor::new(Vec::new());
+        {
+            let mut archive = zip::ZipWriter::new(&mut output);
+            let options = SimpleFileOptions::default();
+            for (path, content) in entries {
+                archive.start_file(path, options).unwrap();
+                archive.write_all(content.as_bytes()).unwrap();
+            }
+            archive.finish().unwrap();
+        }
+        output.into_inner()
+    }
 
     #[test]
     fn validates_manifest_identifiers() {
@@ -344,5 +372,26 @@ mod tests {
     fn rejects_oversized_or_empty_vsix() {
         assert!(parse_vsix_manifest(&[]).is_err());
         assert!(parse_vsix_manifest(&vec![0; MAX_VSIX_BYTES + 1]).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_archives_and_missing_package_manifests() {
+        assert!(parse_vsix_manifest(b"not an archive").is_err());
+        let archive = vsix_with_entries(&[("README.md", "no extension manifest")]);
+        assert!(parse_vsix_manifest(&archive).is_err());
+    }
+
+    #[test]
+    fn rejects_archive_paths_that_escape_the_extension_directory() {
+        let archive = vsix_with_entries(&[("../outside.txt", "unsafe")]);
+        let destination =
+            std::env::temp_dir().join(format!("oxide-editor-vsix-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&destination);
+
+        let result = extract_vsix(&archive, &destination);
+
+        assert!(result.is_err());
+        assert!(!destination.join("outside.txt").exists());
+        let _ = fs::remove_dir_all(destination);
     }
 }

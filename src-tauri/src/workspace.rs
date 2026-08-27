@@ -172,6 +172,19 @@ mod tests {
     }
 
     #[test]
+    fn resolve_path_rejects_absolute_paths_outside_the_workspace() {
+        let state = WorkspaceState::new();
+        assert!(state.resolve_path("/tmp/oxide-editor-outside.txt").is_err());
+    }
+
+    #[test]
+    fn resolve_path_allows_a_new_file_below_the_workspace_root() {
+        let state = WorkspaceState::new();
+        let resolved = state.resolve_path("nested/new-file.txt").unwrap();
+        assert_eq!(resolved, state.root().join("nested/new-file.txt"));
+    }
+
+    #[test]
     fn workspace_info_uses_folder_name() {
         let info = workspace_info(PathBuf::from("/tmp/oxide-workspace"));
         assert_eq!(info.name, "oxide-workspace");

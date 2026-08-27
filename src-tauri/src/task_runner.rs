@@ -11,7 +11,7 @@ pub struct TaskDefinition {
     pub is_background: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskProblem {
     pub message: String,
     pub severity: String,
@@ -26,20 +26,95 @@ pub struct TaskExecutionResult {
 }
 
 pub fn run_task(task: TaskDefinition) -> Result<TaskExecutionResult, String> {
-    if task.command.trim().is_empty() { return Err("Task command is required".to_string()); }
-    let output = Command::new(&task.command).args(&task.args).output()
+    if task.command.trim().is_empty() {
+        return Err("Task command is required".to_string());
+    }
+    let output = Command::new(&task.command)
+        .args(&task.args)
+        .output()
         .map_err(|error| format!("Could not start task '{}': {}", task.label, error))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}{}{}", stdout, if stdout.is_empty() || stderr.is_empty() { "" } else { "\n" }, stderr);
-    let problems = combined.lines().filter_map(|line| {
-        let text = line.trim();
-        if text.starts_with("error") || text.starts_with("warning") {
-            Some(TaskProblem { message: text.to_string(), severity: if text.starts_with("error") { "error".to_string() } else { "warning".to_string() } })
-        } else { None }
-    }).collect();
-    Ok(TaskExecutionResult { label: task.label, exit_code: output.status.code(), output: combined, problems })
+    let combined = format!(
+        "{}{}{}",
+        stdout,
+        if stdout.is_empty() || stderr.is_empty() {
+            ""
+        } else {
+            "\n"
+        },
+        stderr
+    );
+    let problems = combined
+        .lines()
+        .filter_map(|line| {
+            let text = line.trim();
+            if text.starts_with("error") || text.starts_with("warning") {
+                Some(TaskProblem {
+                    message: text.to_string(),
+                    severity: if text.starts_with("error") {
+                        "error".to_string()
+                    } else {
+                        "warning".to_string()
+                    },
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(TaskExecutionResult {
+        label: task.label,
+        exit_code: output.status.code(),
+        output: combined,
+        problems,
+    })
 }
 
 #[cfg(test)]
-mod tests { use super::*; #[test] fn rejects_empty_commands() { assert!(run_task(TaskDefinition { label: "bad".into(), command: "".into(), args: vec![], is_background: false }).is_err()); } }
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_empty_commands() {
+        let task = TaskDefinition {
+            label: "bad".into(),
+            command: "".into(),
+            args: vec![],
+            is_background: false,
+        };
+
+        assert_eq!(run_task(task).unwrap_err(), "Task command is required");
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn extracts_warning_and_error_lines_from_task_output() {
+        let task = TaskDefinition {
+            label: "diagnostics".into(),
+            command: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf 'warning: caution\\n'; printf 'error: failure\\n' >&2".into(),
+            ],
+            is_background: false,
+        };
+
+        let result = run_task(task).unwrap();
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(
+            result.problems,
+            vec![
+                TaskProblem {
+                    message: "warning: caution".into(),
+                    severity: "warning".into(),
+                },
+                TaskProblem {
+                    message: "error: failure".into(),
+                    severity: "error".into(),
+                },
+            ]
+        );
+    }
+}

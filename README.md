@@ -7,7 +7,7 @@
 VS Code の親しみやすい操作性と拡張機能エコシステムを維持しながら、Electron / Node.js 依存を排し、ミリ秒単位の起動と数十MBのメモリフットプリント、120fps の GPU レンダリングを実現します。
 
 ---
-  
+
 ## 🌟 主な特徴 & コア仕様
 
 1. **極小メモリフットプリント & 爆速起動**
@@ -31,6 +31,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 ## 📚 ドキュメント & ナレッジベース体系
 
 ### 📋 全ファイル解析チェックリスト & 調査書
+
 - 📊 [VS Code 全ファイル網羅的解析チェックリスト (360/360 完了)](docs/checklist/vscode-full-analysis-checklist.md)
 - 🔬 [実装移行に向けた技術調査・ギャップ分析レポート (Ready for Implementation)](docs/research/implementation-readiness-and-gap-analysis.md)
 - 🔬 [Electron から Tauri v2 への移行に関する詳細技術調査書](docs/research/electron-to-tauri-migration-research.md)
@@ -39,6 +40,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 - 📝 [アーキテクチャ決定記録 (ADR)](docs/adr/README.md)
 
 ### 📑 レイヤー別 機能要件定義書 (ISO 29148 準拠)
+
 - ⚙️ [1. Base レイヤー 要件定義書](docs/requirements/base-layer-requirements.md)
 - 💉 [2. Platform サービス層 要件定義書](docs/requirements/platform-layer-requirements.md)
 - 📄 [3. Monaco Editor コア 要件定義書](docs/requirements/editor-monaco-requirements.md)
@@ -47,6 +49,7 @@ VS Code の親しみやすい操作性と拡張機能エコシステムを維持
 - 🌐 [6. Native Shell & Server 要件定義書](docs/requirements/native-shell-server-requirements.md)
 
 ### 📐 レイヤー別 アーキテクチャ設計書 (C4 Model 準拠)
+
 - 🚀 [★ Tauri v2 統合システム設計書](docs/design/tauri-architecture-design.md)
 - ⚙️ [1. Base レイヤー アーキテクチャ設計書](docs/design/base-layer-architecture.md)
 - 💉 [2. Platform サービス層 アーキテクチャ設計書](docs/design/platform-layer-architecture.md)
