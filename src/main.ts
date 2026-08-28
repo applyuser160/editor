@@ -43,6 +43,12 @@ import {
   formatDownloadCount,
   splitExtensionId,
 } from "./extension-utils";
+import {
+  DEFAULT_SEMANTIC_TOKEN_LEGEND,
+  isSemanticTokensLegend,
+  toMonacoSemanticTokens,
+  type SemanticTokensLegend,
+} from "./semantic-tokens";
 
 interface FileEntry {
   name: string;
@@ -228,6 +234,9 @@ let isSidebarVisible = true;
 let isTerminalVisible = true;
 
 const activeLspServers = new Set<string>();
+const semanticTokenLegends = new Map<string, SemanticTokensLegend>();
+const semanticTokenLegendRequests = new Map<string, Promise<void>>();
+const semanticTokenChangeEmitters = new Map<string, monaco.Emitter<void>>();
 
 // Path & URI Utilities
 function normalizePath(rawPath: string): string {
@@ -257,6 +266,44 @@ function uriToPath(uriStr: string): string {
     path = path.substring(7);
   }
   return normalizePath(path);
+}
+
+async function refreshSemanticTokenLegend(lang: string): Promise<void> {
+  const existingRequest = semanticTokenLegendRequests.get(lang);
+  if (existingRequest) {
+    await existingRequest;
+    return;
+  }
+
+  const request = (async () => {
+    try {
+      const legend = await invoke<SemanticTokensLegend | null>(
+        "get_lsp_semantic_tokens_legend",
+        { lang },
+      );
+      if (!isSemanticTokensLegend(legend)) return;
+
+      const previous = semanticTokenLegends.get(lang);
+      if (
+        previous &&
+        previous.tokenTypes.join("\\0") === legend.tokenTypes.join("\\0") &&
+        previous.tokenModifiers.join("\\0") ===
+          legend.tokenModifiers.join("\\0")
+      ) {
+        return;
+      }
+
+      semanticTokenLegends.set(lang, legend);
+      semanticTokenChangeEmitters.get(lang)?.fire();
+    } catch {
+      // The server may still be starting. The provider will retry on demand.
+    } finally {
+      semanticTokenLegendRequests.delete(lang);
+    }
+  })();
+
+  semanticTokenLegendRequests.set(lang, request);
+  await request;
 }
 
 // Initialize when DOM is ready
@@ -323,6 +370,36 @@ async function initLanguageServerIntegration() {
         monaco.editor.setModelMarkers(tab.model, "lsp", markers);
         updateStatusMarkersCount(markers);
       }
+    });
+  });
+
+  supportedLangs.forEach((lang) => {
+    semanticTokenLegends.set(lang, DEFAULT_SEMANTIC_TOKEN_LEGEND);
+    semanticTokenChangeEmitters.set(lang, new monaco.Emitter<void>());
+
+    monaco.languages.registerDocumentSemanticTokensProvider(lang, {
+      getLegend: () => semanticTokenLegends.get(lang)!,
+      onDidChange: semanticTokenChangeEmitters.get(lang)!.event,
+      provideDocumentSemanticTokens: async (model, _lastResultId, token) => {
+        if (token.isCancellationRequested) return null;
+        await refreshSemanticTokenLegend(lang);
+        if (token.isCancellationRequested) return null;
+
+        try {
+          const result = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/semanticTokens/full",
+            params: {
+              textDocument: { uri: pathToUri(model.uri.path) },
+            },
+          });
+          if (token.isCancellationRequested) return null;
+          return toMonacoSemanticTokens(result);
+        } catch {
+          return null;
+        }
+      },
+      releaseDocumentSemanticTokens: () => {},
     });
   });
 
@@ -829,6 +906,7 @@ fn main() {
 
   const commonOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
     theme: "vscode-dark-plus",
+    "semanticHighlighting.enabled": true,
     fontSize: 14,
     fontFamily: "Consolas, 'Courier New', monospace",
     lineNumbers: "on",
@@ -2397,7 +2475,8 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     });
 
     openTabs.set(path, tabData);
-    ensureLspServerStarted(language);
+    await ensureLspServerStarted(language);
+    void refreshSemanticTokenLegend(language);
     invoke("lsp_send_notification", {
       lang: language,
       method: "textDocument/didOpen",

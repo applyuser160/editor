@@ -1,5 +1,5 @@
 use crate::extension_host::{ExtensionHostState, ExtensionManifest};
-use crate::lsp_client::LspState;
+use crate::lsp_client::{LspState, SemanticTokensLegend};
 use crate::pty_manager::{PtyState, TerminalProfile};
 use crate::settings_store::{self, SettingsSnapshot};
 use crate::task_runner::{load_tasks, run_task, TaskDefinition, TaskExecutionResult};
@@ -119,6 +119,14 @@ pub async fn lsp_send_request(
     params: Value,
 ) -> Result<Value, String> {
     state.send_request(&lang, &method, params).await
+}
+
+#[tauri::command]
+pub async fn get_lsp_semantic_tokens_legend(
+    state: State<'_, LspState>,
+    lang: String,
+) -> Result<Option<SemanticTokensLegend>, String> {
+    Ok(state.semantic_tokens_legend(&lang))
 }
 
 #[tauri::command]

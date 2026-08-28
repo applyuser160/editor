@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -5,6 +6,12 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SemanticTokensLegend {
+    pub token_types: Vec<String>,
+    pub token_modifiers: Vec<String>,
+}
 
 pub struct LspSession {
     pub child: Arc<Mutex<Child>>,
@@ -17,12 +24,14 @@ pub struct LspSession {
 #[derive(Default, Clone)]
 pub struct LspState {
     pub sessions: Arc<Mutex<HashMap<String, LspSession>>>,
+    pub semantic_tokens_legends: Arc<Mutex<HashMap<String, SemanticTokensLegend>>>,
 }
 
 impl LspState {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            semantic_tokens_legends: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -148,6 +157,7 @@ impl LspState {
         let app_clone = app_handle.clone();
         let lang_str = lang.to_string();
         let stdin_reader_clone = stdin.clone();
+        let legends_clone = self.semantic_tokens_legends.clone();
 
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -172,6 +182,7 @@ impl LspState {
                                         &app_clone,
                                         &pending_clone,
                                         &stdin_reader_clone,
+                                        &legends_clone,
                                         json_msg,
                                     );
                                 }
@@ -185,7 +196,9 @@ impl LspState {
         let session = LspSession {
             child,
             stdin: stdin.clone(),
-            next_request_id: AtomicU64::new(1),
+            // Request id 1 is reserved for the initialize response, which is
+            // captured separately to discover the server's token legend.
+            next_request_id: AtomicU64::new(2),
             pending_requests,
         };
 
@@ -205,6 +218,20 @@ impl LspState {
                     "workspaceFolders": true
                 },
                 "textDocument": {
+                    "semanticTokens": {
+                        "dynamicRegistration": true,
+                        "requests": {
+                            "range": true,
+                            "full": { "delta": false }
+                        },
+                        "formats": ["relative"],
+                        "overlappingTokenSupport": true,
+                        "multilineTokenSupport": false,
+                        "tokenTypes": [
+                            "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator"
+                        ],
+                        "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification", "documentation", "defaultLibrary"]
+                    },
                     "hover": { "contentFormat": ["markdown", "plaintext"] },
                     "completion": { "completionItem": { "snippetSupport": true } },
                     "definition": { "dynamicRegistration": true, "linkSupport": true },
@@ -242,12 +269,21 @@ impl LspState {
         ))
     }
 
+    pub fn semantic_tokens_legend(&self, lang: &str) -> Option<SemanticTokensLegend> {
+        self.semantic_tokens_legends
+            .lock()
+            .unwrap()
+            .get(lang)
+            .cloned()
+    }
+
     pub fn stop_all(&self) -> usize {
         let sessions = {
             let mut sessions = self.sessions.lock().unwrap();
             std::mem::take(&mut *sessions)
         };
         let count = sessions.len();
+        self.semantic_tokens_legends.lock().unwrap().clear();
 
         for (_, session) in sessions {
             let _ = session.child.lock().unwrap().kill();
@@ -340,15 +376,52 @@ fn send_message_raw(stdin: &Arc<Mutex<ChildStdin>>, payload: &Value) {
     }
 }
 
+fn semantic_tokens_legend_from_initialize(msg: &Value) -> Option<SemanticTokensLegend> {
+    let legend = msg.pointer("/result/capabilities/semanticTokensProvider/legend")?;
+    let token_types = legend
+        .get("tokenTypes")?
+        .as_array()?
+        .iter()
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let token_modifiers = legend
+        .get("tokenModifiers")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if token_types.is_empty() {
+        return None;
+    }
+
+    Some(SemanticTokensLegend {
+        token_types,
+        token_modifiers,
+    })
+}
+
 fn handle_incoming_lsp_message(
     lang: &str,
     app: &AppHandle,
     pending: &Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, String>>>>>,
     stdin: &Arc<Mutex<ChildStdin>>,
+    legends: &Arc<Mutex<HashMap<String, SemanticTokensLegend>>>,
     msg: Value,
 ) {
     if let Some(id_val) = msg.get("id") {
         if let Some(id) = id_val.as_u64() {
+            if id == 1 {
+                if let Some(legend) = semantic_tokens_legend_from_initialize(&msg) {
+                    legends.lock().unwrap().insert(lang.to_string(), legend);
+                }
+                return;
+            }
+
             if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
                 let res_val = if method == "workspace/configuration" {
                     let count = msg
@@ -400,5 +473,45 @@ fn handle_incoming_lsp_message(
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_semantic_tokens_legend_from_initialize_response() {
+        let response = serde_json::json!({
+            "id": 1,
+            "result": {
+                "capabilities": {
+                    "semanticTokensProvider": {
+                        "legend": {
+                            "tokenTypes": ["type", "function"],
+                            "tokenModifiers": ["declaration"]
+                        }
+                    }
+                }
+            }
+        });
+
+        assert_eq!(
+            semantic_tokens_legend_from_initialize(&response),
+            Some(SemanticTokensLegend {
+                token_types: vec!["type".to_string(), "function".to_string()],
+                token_modifiers: vec!["declaration".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn ignores_initialize_responses_without_a_token_legend() {
+        let response = serde_json::json!({
+            "id": 1,
+            "result": { "capabilities": {} }
+        });
+
+        assert!(semantic_tokens_legend_from_initialize(&response).is_none());
     }
 }

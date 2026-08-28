@@ -38,6 +38,7 @@ pub fn run() {
             commands::lsp_send_notification,
             commands::lsp_stop_all,
             commands::lsp_send_request,
+            commands::get_lsp_semantic_tokens_legend,
             commands::search_openvsx_extensions,
             commands::install_openvsx_extension,
             commands::uninstall_extension,
