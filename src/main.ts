@@ -37,6 +37,18 @@ import {
   type GitGraphRow,
 } from "./git-graph";
 import { normalizeFilePath, pathForWorkspaceRead } from "./path-utils";
+import {
+  escapeHtml,
+  extensionId,
+  formatDownloadCount,
+  splitExtensionId,
+} from "./extension-utils";
+import {
+  DEFAULT_SEMANTIC_TOKEN_LEGEND,
+  isSemanticTokensLegend,
+  toMonacoSemanticTokens,
+  type SemanticTokensLegend,
+} from "./semantic-tokens";
 
 interface FileEntry {
   name: string;
@@ -222,6 +234,9 @@ let isSidebarVisible = true;
 let isTerminalVisible = true;
 
 const activeLspServers = new Set<string>();
+const semanticTokenLegends = new Map<string, SemanticTokensLegend>();
+const semanticTokenLegendRequests = new Map<string, Promise<void>>();
+const semanticTokenChangeEmitters = new Map<string, monaco.Emitter<void>>();
 
 // Path & URI Utilities
 function normalizePath(rawPath: string): string {
@@ -251,6 +266,44 @@ function uriToPath(uriStr: string): string {
     path = path.substring(7);
   }
   return normalizePath(path);
+}
+
+async function refreshSemanticTokenLegend(lang: string): Promise<void> {
+  const existingRequest = semanticTokenLegendRequests.get(lang);
+  if (existingRequest) {
+    await existingRequest;
+    return;
+  }
+
+  const request = (async () => {
+    try {
+      const legend = await invoke<SemanticTokensLegend | null>(
+        "get_lsp_semantic_tokens_legend",
+        { lang },
+      );
+      if (!isSemanticTokensLegend(legend)) return;
+
+      const previous = semanticTokenLegends.get(lang);
+      if (
+        previous &&
+        previous.tokenTypes.join("\\0") === legend.tokenTypes.join("\\0") &&
+        previous.tokenModifiers.join("\\0") ===
+          legend.tokenModifiers.join("\\0")
+      ) {
+        return;
+      }
+
+      semanticTokenLegends.set(lang, legend);
+      semanticTokenChangeEmitters.get(lang)?.fire();
+    } catch {
+      // The server may still be starting. The provider will retry on demand.
+    } finally {
+      semanticTokenLegendRequests.delete(lang);
+    }
+  })();
+
+  semanticTokenLegendRequests.set(lang, request);
+  await request;
 }
 
 // Initialize when DOM is ready
@@ -317,6 +370,36 @@ async function initLanguageServerIntegration() {
         monaco.editor.setModelMarkers(tab.model, "lsp", markers);
         updateStatusMarkersCount(markers);
       }
+    });
+  });
+
+  supportedLangs.forEach((lang) => {
+    semanticTokenLegends.set(lang, DEFAULT_SEMANTIC_TOKEN_LEGEND);
+    semanticTokenChangeEmitters.set(lang, new monaco.Emitter<void>());
+
+    monaco.languages.registerDocumentSemanticTokensProvider(lang, {
+      getLegend: () => semanticTokenLegends.get(lang)!,
+      onDidChange: semanticTokenChangeEmitters.get(lang)!.event,
+      provideDocumentSemanticTokens: async (model, _lastResultId, token) => {
+        if (token.isCancellationRequested) return null;
+        await refreshSemanticTokenLegend(lang);
+        if (token.isCancellationRequested) return null;
+
+        try {
+          const result = await invoke("lsp_send_request", {
+            lang,
+            method: "textDocument/semanticTokens/full",
+            params: {
+              textDocument: { uri: pathToUri(model.uri.path) },
+            },
+          });
+          if (token.isCancellationRequested) return null;
+          return toMonacoSemanticTokens(result);
+        } catch {
+          return null;
+        }
+      },
+      releaseDocumentSemanticTokens: () => {},
     });
   });
 
@@ -823,6 +906,7 @@ fn main() {
 
   const commonOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
     theme: "vscode-dark-plus",
+    "semanticHighlighting.enabled": true,
     fontSize: 14,
     fontFamily: "Consolas, 'Courier New', monospace",
     lineNumbers: "on",
@@ -2391,7 +2475,8 @@ async function openFile(rawPath: string, name?: string, targetPane?: 1 | 2) {
     });
 
     openTabs.set(path, tabData);
-    ensureLspServerStarted(language);
+    await ensureLspServerStarted(language);
+    void refreshSemanticTokenLegend(language);
     invoke("lsp_send_notification", {
       lang: language,
       method: "textDocument/didOpen",
@@ -3258,6 +3343,7 @@ async function renderExtensionsView(container: HTMLElement) {
   const searchInput = document.getElementById(
     "openvsx-search-input",
   ) as HTMLInputElement;
+  let installedExtensionIds = new Set<string>();
 
   if (installedList) {
     try {
@@ -3265,18 +3351,22 @@ async function renderExtensionsView(container: HTMLElement) {
         "get_installed_extensions",
       );
       installedList.innerHTML = "";
+      installedExtensionIds = new Set(exts.map((extension) => extension.id));
       exts.forEach((ext) => {
         const card = document.createElement("div");
+        const extensionIdentifier = splitExtensionId(ext.id);
         card.className = "openvsx-ext-card";
+        card.setAttribute("role", "button");
+        card.tabIndex = 0;
         card.innerHTML = `
           <div class="openvsx-ext-header">
-            <span class="openvsx-ext-title">${ext.name}</span>
-            <span class="openvsx-ext-id">v${ext.version}</span>
+            <span class="openvsx-ext-title">${escapeHtml(ext.name)}</span>
+            <span class="openvsx-ext-id">${escapeHtml(extensionId(extensionIdentifier.namespace, extensionIdentifier.name))} v${escapeHtml(ext.version)}</span>
           </div>
-          <div class="openvsx-ext-desc">${ext.description}</div>
+          <div class="openvsx-ext-desc">${escapeHtml(ext.description || "説明はありません")}</div>
           <div class="openvsx-ext-footer">
-            <span style="font-size: 10px; color: ${ext.enabled ? "#00ff80" : "#888"};">● ${ext.enabled ? "有効 (Active)" : "無効 (Disabled)"}</span>
-            <button class="btn-toggle-ext" data-id="${ext.id}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
+            <span class="extension-state ${ext.enabled ? "is-enabled" : "is-disabled"}">● ${ext.enabled ? "有効 (Active)" : "無効 (Disabled)"}</span>
+            <button class="btn-toggle-ext" data-id="${escapeHtml(ext.id)}" data-enabled="${ext.enabled}">${ext.enabled ? "無効化" : "有効化"}</button>
           </div>
         `;
         const toggleButton =
@@ -3299,10 +3389,10 @@ async function renderExtensionsView(container: HTMLElement) {
           }
         });
 
-        card.addEventListener("click", () => {
+        const openDetails = () => {
           const fakeOpenVsxExt: OpenVsxExtension = {
-            namespace: ext.id.split(".")[0] || "",
-            name: ext.name,
+            namespace: extensionIdentifier.namespace,
+            name: extensionIdentifier.name,
             version: ext.version,
             display_name: ext.name,
             description: ext.description,
@@ -3312,58 +3402,76 @@ async function renderExtensionsView(container: HTMLElement) {
             url: null,
           };
           openExtensionDetail(fakeOpenVsxExt, true);
+        };
+        card.addEventListener("click", openDetails);
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openDetails();
+          }
         });
         installedList.appendChild(card);
       });
     } catch (e) {
-      installedList.innerHTML = `<div style="color: #888; font-size: 11px;">読込エラー: ${e}</div>`;
+      installedList.innerHTML = `<div class="extension-empty-state">読込エラー: ${escapeHtml(String(e))}</div>`;
     }
   }
 
+  let marketplaceRequestId = 0;
   async function searchMarketplace(query: string) {
     if (!marketplaceList) return;
-    marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">Open VSX を検索中...</div>`;
+    const requestId = ++marketplaceRequestId;
+    marketplaceList.innerHTML = `<div class="extension-empty-state">Open VSX を検索中...</div>`;
 
     try {
       const results = await invoke<OpenVsxExtension[]>(
         "search_openvsx_extensions",
         { query },
       );
+      if (requestId !== marketplaceRequestId) return;
       marketplaceList.innerHTML = "";
 
       if (results.length === 0) {
-        marketplaceList.innerHTML = `<div style="color: #888; font-size: 11px; padding: 4px;">一致する拡張機能は見つかりませんでした</div>`;
+        marketplaceList.innerHTML = `<div class="extension-empty-state">一致する拡張機能は見つかりませんでした</div>`;
         return;
       }
 
       results.forEach((ext) => {
         const card = document.createElement("div");
-        card.className = "openvsx-ext-card";
         const title = ext.display_name || ext.name;
-        const id = `${ext.namespace}.${ext.name}`;
-        const downloads = ext.download_count
-          ? `${ext.download_count.toLocaleString()} DL`
-          : "";
+        const id = extensionId(ext.namespace, ext.name);
+        const isInstalled = installedExtensionIds.has(id);
+        const downloads = formatDownloadCount(ext.download_count);
 
+        card.className = "openvsx-ext-card";
+        card.setAttribute("role", "button");
+        card.tabIndex = 0;
         card.innerHTML = `
           <div class="openvsx-ext-header">
-            <span class="openvsx-ext-title">${title}</span>
-            <span class="openvsx-ext-id">${id}</span>
+            <span class="openvsx-ext-title">${escapeHtml(title)}</span>
+            <span class="openvsx-ext-id">${escapeHtml(id)}</span>
           </div>
-          <div class="openvsx-ext-desc">${ext.description || "No description provided."}</div>
+          <div class="openvsx-ext-desc">${escapeHtml(ext.description || "説明はありません")}</div>
           <div class="openvsx-ext-footer">
-            <span class="openvsx-ext-downloads">📥 ${downloads} (v${ext.version})</span>
-            <button class="btn-install-ext" data-id="${id}">インストール</button>
+            <span class="openvsx-ext-downloads">${downloads ? `📥 ${escapeHtml(downloads)} ` : ""}(v${escapeHtml(ext.version)})</span>
+            <button class="btn-install-ext${isInstalled ? " is-installed" : ""}" data-id="${escapeHtml(id)}" ${isInstalled ? "disabled" : ""}>${isInstalled ? "✓ インストール済み" : "インストール"}</button>
           </div>
         `;
 
+        const openDetails = () => openExtensionDetail(ext, isInstalled);
         card.addEventListener("click", (e) => {
-          if ((e.target as HTMLElement).tagName === "BUTTON") return;
-          openExtensionDetail(ext, false);
+          if ((e.target as HTMLElement).closest("button")) return;
+          openDetails();
+        });
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openDetails();
+          }
         });
 
         const btn = card.querySelector<HTMLButtonElement>(".btn-install-ext");
-        if (btn) {
+        if (btn && !isInstalled) {
           btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             btn.textContent = "インストール中...";
@@ -3377,13 +3485,12 @@ async function renderExtensionsView(container: HTMLElement) {
                 downloadUrl: ext.download_url || null,
               });
               showStatusMessage(res);
-              btn.textContent = "✓ インストール済み";
-              btn.style.backgroundColor = "#2ea043";
 
               // リアルプロセス起動 (CPU/メモリ消費連動)
               if (ext.name.includes("rust")) ensureLspServerStarted("rust");
               if (ext.name.includes("python")) ensureLspServerStarted("python");
               if (ext.name.includes("go")) ensureLspServerStarted("go");
+              await renderExtensionsView(container);
             } catch (err) {
               alert(`インストール失敗: ${err}`);
               btn.textContent = "インストール";
@@ -3395,11 +3502,13 @@ async function renderExtensionsView(container: HTMLElement) {
         marketplaceList.appendChild(card);
       });
     } catch (err) {
-      marketplaceList.innerHTML = `<div style="color: #ff5555; font-size: 11px;">Open VSX 接続エラー: ${err}</div>`;
+      if (requestId === marketplaceRequestId) {
+        marketplaceList.innerHTML = `<div class="extension-empty-state is-error">Open VSX 接続エラー: ${escapeHtml(String(err))}</div>`;
+      }
     }
   }
 
-  searchMarketplace("");
+  void searchMarketplace("");
 
   if (searchInput) {
     let timeout: any = null;
@@ -3410,6 +3519,12 @@ async function renderExtensionsView(container: HTMLElement) {
       }, 400);
     });
   }
+}
+
+async function refreshExtensionsView() {
+  if (currentActiveView !== "extensions") return;
+  const container = document.getElementById("sidebar-content");
+  if (container) await renderExtensionsView(container);
 }
 
 // 14. Search Feature Integration
@@ -3874,15 +3989,6 @@ function downloadTextFile(fileName: string, content: string) {
   anchor.download = fileName;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 const GIT_GRAPH_COLORS = [
@@ -6020,6 +6126,7 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
   ) as HTMLButtonElement;
 
   icon.src = ext.icon_url || "https://via.placeholder.com/72?text=Ext";
+  icon.alt = `${ext.display_name || ext.name} アイコン`;
   if (title) title.textContent = ext.display_name || ext.name;
   if (id) id.textContent = `${ext.namespace}.${ext.name} v${ext.version}`;
   if (desc) desc.textContent = ext.description || "";
@@ -6028,6 +6135,8 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
   if (isInstalled) {
     installBtn.classList.add("hidden");
     uninstallBtn.classList.remove("hidden");
+    uninstallBtn.textContent = "アンインストール";
+    uninstallBtn.disabled = false;
   } else {
     installBtn.classList.remove("hidden");
     uninstallBtn.classList.add("hidden");
@@ -6047,13 +6156,13 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
         downloadUrl: ext.download_url || null,
       });
       showStatusMessage(res);
-      installBtn.textContent = "✓ インストール済み";
       uninstallBtn.classList.remove("hidden");
       installBtn.classList.add("hidden");
 
       if (ext.name.includes("rust")) ensureLspServerStarted("rust");
       if (ext.name.includes("python")) ensureLspServerStarted("python");
       if (ext.name.includes("go")) ensureLspServerStarted("go");
+      await refreshExtensionsView();
     } catch (err) {
       alert(`エラー: ${err}`);
       installBtn.textContent = "インストール";
@@ -6071,6 +6180,9 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
       showStatusMessage(res);
       installBtn.classList.remove("hidden");
       uninstallBtn.classList.add("hidden");
+      uninstallBtn.textContent = "アンインストール";
+      uninstallBtn.disabled = false;
+      await refreshExtensionsView();
     } catch (err) {
       alert(`アンインストール失敗: ${err}`);
       uninstallBtn.textContent = "アンインストール";
@@ -6090,12 +6202,12 @@ function openExtensionDetail(ext: OpenVsxExtension, isInstalled: boolean) {
       .then((data) => {
         if (readme) {
           readme.innerHTML = `<div style="padding: 10px;">
-          <h3>${ext.display_name || ext.name}</h3>
-          <p>${ext.description || ""}</p>
+          <h3>${escapeHtml(ext.display_name || ext.name)}</h3>
+          <p>${escapeHtml(ext.description || "")}</p>
           <hr>
-          <p>Repository: ${data.repository || "N/A"}</p>
-          <p>License: ${data.license || "N/A"}</p>
-          <p>Downloads: ${ext.download_count}</p>
+          <p>Repository: ${escapeHtml(String(data.repository || "N/A"))}</p>
+          <p>License: ${escapeHtml(String(data.license || "N/A"))}</p>
+          <p>Downloads: ${escapeHtml(String(ext.download_count ?? "N/A"))}</p>
         </div>`;
         }
       })
