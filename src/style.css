@@ -767,6 +767,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  cursor: pointer;
+}
+
+.openvsx-ext-card:hover,
+.openvsx-ext-card:focus-visible {
+  background: #323536;
+  border-color: rgba(0, 122, 204, 0.75);
+  outline: none;
+}
+
+.extension-empty-state {
+  padding: 8px 4px;
+  color: #888;
+  font-size: 11px;
+}
+
+.extension-empty-state.is-error {
+  color: #ff8888;
 }
 
 .openvsx-ext-header {
@@ -804,6 +822,18 @@ body {
   color: #858585;
 }
 
+.extension-state {
+  font-size: 10px;
+}
+
+.extension-state.is-enabled {
+  color: #00ff80;
+}
+
+.extension-state.is-disabled {
+  color: #888;
+}
+
 .btn-install-ext {
   padding: 4px 10px;
   background-color: #007acc;
@@ -816,6 +846,13 @@ body {
 
 .btn-install-ext:hover {
   background-color: #0098ff;
+}
+
+.btn-install-ext:disabled,
+.btn-install-ext.is-installed {
+  background-color: #2d7d46;
+  color: #d7f5df;
+  cursor: default;
 }
 
 /* 5. Confirmation Modal */
